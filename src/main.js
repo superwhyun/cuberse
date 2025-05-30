@@ -229,5 +229,76 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Save button functionality
+  const saveButton = document.getElementById('saveButton');
+  if (saveButton) {
+    saveButton.addEventListener('click', () => {
+      const sceneData = [];
+      cubes.forEach(cube => {
+        sceneData.push({
+          x: cube.position.x,
+          y: cube.position.y,
+          z: cube.position.z,
+          color: `#${cube.material.color.getHexString()}`
+        });
+      });
+
+      const jsonString = JSON.stringify(sceneData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const anchorElement = document.createElement('a');
+      anchorElement.href = URL.createObjectURL(blob);
+      anchorElement.download = 'scene.json';
+      anchorElement.click();
+      URL.revokeObjectURL(anchorElement.href);
+    });
+  }
+
+  // Drag and drop load functionality
+  renderer.domElement.addEventListener('dragover', (event) => {
+    event.preventDefault(); // Allow dropping
+  });
+
+  renderer.domElement.addEventListener('drop', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const file = event.dataTransfer.files[0];
+    if (file && file.type === 'application/json') {
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        try {
+          const loadedSceneData = JSON.parse(e.target.result);
+
+          // Clear existing cubes
+          cubes.forEach(cube => scene.remove(cube));
+          cubes.length = 0; // Clear the array
+
+          // Load new cubes
+          loadedSceneData.forEach(cubeData => {
+            // Convert absolute positions from JSON back to grid coordinates for addCube
+            const gridX = (cubeData.x / cubeSize) - 0.5 + gridDivisions / 2;
+            const gridY = (cubeData.y / cubeSize) - 0.5;
+            const gridZ = (cubeData.z / cubeSize) - 0.5 + gridDivisions / 2;
+
+            addCube(gridX, gridY, gridZ, cubeData.color);
+          });
+        } catch (error) {
+          console.error('Error parsing JSON file:', error);
+          alert('Failed to load scene: Invalid JSON file.');
+        }
+      };
+
+      reader.onerror = (error) => {
+        console.error('Error reading file:', error);
+        alert('Failed to read file.');
+      };
+
+      reader.readAsText(file);
+    } else if (file) {
+      alert('Invalid file type. Please drop a .json file.');
+    }
+  });
+
   animate();
 });
