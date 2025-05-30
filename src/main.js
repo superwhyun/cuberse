@@ -7,6 +7,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let cubeColor = colorInput.value;
 
+  // Mouse drag variables
+  let isDragging = false;
+  let previousMousePosition = { x: 0, y: 0 };
+  let initialMousePosition = { x: 0, y: 0 };
+  const dragThreshold = 5; // pixels
+  let wasDraggingJustNow = false; // Flag to differentiate click from drag
+
   // 씬, 카메라, 렌더러 생성
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
@@ -50,6 +57,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 마우스 클릭으로 큐브 추가 (큐브 위 또는 바닥)
   renderer.domElement.addEventListener('click', (event) => {
+    if (wasDraggingJustNow) {
+      wasDraggingJustNow = false; // Reset flag and consume the click
+      return;
+    }
+
     const rect = renderer.domElement.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -88,28 +100,119 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 마우스 무브로 큐브 하이라이트(노란색 outline)
+  // Mouse listeners for drag, highlight
+  renderer.domElement.addEventListener('mousedown', (event) => {
+    if (event.button === 2) { // Right mouse button for context menu
+        return;
+    }
+    isDragging = true;
+    initialMousePosition.x = event.clientX;
+    initialMousePosition.y = event.clientY;
+    previousMousePosition.x = event.clientX;
+    previousMousePosition.y = event.clientY;
+    wasDraggingJustNow = false;
+  });
+
   renderer.domElement.addEventListener('mousemove', (event) => {
     const rect = renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    const currentMouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
     );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
 
-    const cubeIntersects = raycaster.intersectObjects(cubes);
-    if (highlightEdge) {
-      scene.remove(highlightEdge);
-      highlightEdge = null;
+    if (isDragging) {
+        const deltaX = event.clientX - previousMousePosition.x;
+        const deltaY = event.clientY - previousMousePosition.y;
+
+        previousMousePosition.x = event.clientX;
+        previousMousePosition.y = event.clientY;
+
+        const lookAtPoint = new THREE.Vector3(0, 0, 0); // Assuming camera looks at origin
+
+        // Horizontal rotation
+        if (Math.abs(deltaX) > 0.01) {
+            const rotationSpeed = 0.005;
+            const angle = -deltaX * rotationSpeed;
+            const worldYAxis = new THREE.Vector3(0, 1, 0);
+            camera.position.sub(lookAtPoint);
+            camera.position.applyAxisAngle(worldYAxis, angle);
+            camera.position.add(lookAtPoint);
+            camera.lookAt(lookAtPoint);
+        }
+
+        // Vertical rotation
+        if (Math.abs(deltaY) > 0.01) {
+            const rotationSpeed = 0.004; // Adjusted speed
+            const angle = -deltaY * rotationSpeed;
+
+            const viewDirection = new THREE.Vector3();
+            camera.getWorldDirection(viewDirection);
+
+            // Axis for vertical rotation: perpendicular to view and world UP.
+            // This is essentially the camera's local X-axis if camera.up is aligned with world Y.
+            // However, camera.up can change, so we derive it based on view direction and a fixed world UP.
+            const worldUp = new THREE.Vector3(0, 1, 0);
+            let rotationAxis = new THREE.Vector3().crossVectors(viewDirection, worldUp).normalize();
+
+            // If camera is looking straight up or down, cross product might be zero.
+            // In such cases, we can use camera's local X axis (derived from its quaternion)
+            if (rotationAxis.lengthSq() < 0.001) {
+                rotationAxis = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
+            }
+
+            const currentPosRelativeToLookAt = camera.position.clone().sub(lookAtPoint);
+            const currentAngleWithHorizontal = Math.asin(currentPosRelativeToLookAt.clone().normalize().y);
+
+            // Predict new position
+            const tempQuaternion = new THREE.Quaternion().setFromAxisAngle(rotationAxis, angle);
+            const newPosRelativeToLookAt = currentPosRelativeToLookAt.clone().applyQuaternion(tempQuaternion);
+
+            // Limit vertical rotation to prevent flipping (e.g., +/- 85 degrees)
+            const maxVerticalAngle = Math.PI / 2 * 0.94; // Approx 85 degrees
+            const newAngleWithHorizontal = Math.asin(newPosRelativeToLookAt.clone().normalize().y);
+
+            if (Math.abs(newAngleWithHorizontal) < maxVerticalAngle) {
+                camera.position.copy(lookAtPoint).add(newPosRelativeToLookAt);
+                // Rotate camera.up as well, but ensure it's somewhat aligned with world up
+                // This part is tricky; directly rotating camera.up can lead to it pointing downwards.
+                // A common approach is to set camera.up towards world Y and then re-lookAt.
+                camera.lookAt(lookAtPoint);
+            }
+        }
+    } else {
+        // Not dragging, so do highlighting logic
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(currentMouse, camera);
+        const cubeIntersects = raycaster.intersectObjects(cubes);
+
+        if (highlightEdge) {
+            scene.remove(highlightEdge);
+            highlightEdge = null;
+        }
+        if (cubeIntersects.length > 0) {
+            const target = cubeIntersects[0].object;
+            const edgeGeom = new THREE.EdgesGeometry(target.geometry);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 }); // Thinner line
+            highlightEdge = new THREE.LineSegments(edgeGeom, edgeMat);
+            highlightEdge.position.copy(target.position);
+            scene.add(highlightEdge);
+        }
     }
-    if (cubeIntersects.length > 0) {
-      const target = cubeIntersects[0].object;
-      const edgeGeom = new THREE.EdgesGeometry(target.geometry);
-      const edgeMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 3 });
-      highlightEdge = new THREE.LineSegments(edgeGeom, edgeMat);
-      highlightEdge.position.copy(target.position);
-      scene.add(highlightEdge);
+  });
+
+  renderer.domElement.addEventListener('mouseup', (event) => {
+    if (event.button === 2) { // Right mouse button
+        return;
+    }
+    if (isDragging) {
+        const deltaX = event.clientX - initialMousePosition.x;
+        const deltaY = event.clientY - initialMousePosition.y;
+        const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        if (dragDistance > dragThreshold) {
+            wasDraggingJustNow = true;
+        }
+        isDragging = false;
     }
   });
 
@@ -162,31 +265,35 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
       }
       case 'q': {
-        // 중심(0,0,0) 기준 반시계 방향(y축) 회전
-        const target = new THREE.Vector3(0, 0, 0);
-        const direction = camera.position.clone().sub(target);
-        const radius = direction.length();
-        const theta = Math.atan2(direction.z, direction.x);
-        const phi = Math.atan2(direction.y, Math.sqrt(direction.x ** 2 + direction.z ** 2));
-        const newTheta = theta + rotateStep;
-        camera.position.x = target.x + radius * Math.cos(phi) * Math.cos(newTheta);
-        camera.position.z = target.z + radius * Math.cos(phi) * Math.sin(newTheta);
-        camera.position.y = target.y + radius * Math.sin(phi);
-        camera.lookAt(target);
+        // Rotate left around a dynamic pivot point
+        const viewDirection = new THREE.Vector3();
+        camera.getWorldDirection(viewDirection);
+        const pivotDistance = 10; // Fixed distance to pivot point
+        const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
+
+        const worldYAxis = new THREE.Vector3(0, 1, 0);
+
+        camera.position.sub(pivotPoint); // Translate camera to pivot's origin
+        camera.position.applyAxisAngle(worldYAxis, rotateStep); // Rotate
+        camera.position.add(pivotPoint); // Translate camera back
+
+        camera.lookAt(pivotPoint); // Look at the pivot point
         break;
       }
       case 'e': {
-        // 중심(0,0,0) 기준 시계 방향(y축) 회전
-        const target = new THREE.Vector3(0, 0, 0);
-        const direction = camera.position.clone().sub(target);
-        const radius = direction.length();
-        const theta = Math.atan2(direction.z, direction.x);
-        const phi = Math.atan2(direction.y, Math.sqrt(direction.x ** 2 + direction.z ** 2));
-        const newTheta = theta - rotateStep;
-        camera.position.x = target.x + radius * Math.cos(phi) * Math.cos(newTheta);
-        camera.position.z = target.z + radius * Math.cos(phi) * Math.sin(newTheta);
-        camera.position.y = target.y + radius * Math.sin(phi);
-        camera.lookAt(target);
+        // Rotate right around a dynamic pivot point
+        const viewDirection = new THREE.Vector3();
+        camera.getWorldDirection(viewDirection);
+        const pivotDistance = 10; // Fixed distance to pivot point
+        const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
+
+        const worldYAxis = new THREE.Vector3(0, 1, 0);
+
+        camera.position.sub(pivotPoint); // Translate camera to pivot's origin
+        camera.position.applyAxisAngle(worldYAxis, -rotateStep); // Rotate (negative for right)
+        camera.position.add(pivotPoint); // Translate camera back
+
+        camera.lookAt(pivotPoint); // Look at the pivot point
         break;
       }
       default:
@@ -211,7 +318,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // contextmenu(오른쪽 클릭) 시, 마우스 위치에 가장 가까운 큐브(raycast hit)가 있으면 scene에서 제거하고 cubes 배열에서도 삭제
   // 기본 브라우저 context menu 동작은 preventDefault()로 차단
   renderer.domElement.addEventListener('contextmenu', (event) => {
-    event.preventDefault();
+    // event.preventDefault(); // Only preventDefault if we are actually removing a cube
+
     const rect = renderer.domElement.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -222,11 +330,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const intersects = raycaster.intersectObjects(cubes);
     if (intersects.length > 0) {
+      event.preventDefault(); // Prevent context menu only if a cube is targeted for removal
       const targetCube = intersects[0].object;
       scene.remove(targetCube);
       const idx = cubes.indexOf(targetCube);
       if (idx > -1) cubes.splice(idx, 1);
+
+      // Remove highlight if the removed cube was highlighted
+      if (highlightEdge && highlightEdge.position.equals(targetCube.position)) {
+          scene.remove(highlightEdge);
+          highlightEdge = null;
+      }
     }
+    // If no cube is intersected, allow the default context menu to appear
   });
 
   animate();
