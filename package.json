@@ -1,0 +1,12 @@
+{
+  "name": "cuberse",
+  "version": "1.0.0",
+  "description": "마인크래프트 스타일 큐브 쌓기 웹앱",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
