@@ -543,19 +543,28 @@ function initApp() {
     camera.position.addScaledVector(camera.getWorldDirection(new THREE.Vector3()), -e.deltaY * 0.01);
   });
 
-  // 키보드 이동/회전
+  // 부드러운 키보드 이동을 위한 키 상태 추적
+  const keyStates = {
+    w: false, s: false, a: false, d: false,
+    q: false, e: false, c: false, z: false
+  };
+  
+  const moveSpeed = 0.2; // 이동 속도 (초당 유닛)
+  const rotateSpeed = 0.02; // 회전 속도
+
+  // 키보드 이동/회전 - 연속 입력 처리
   window.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
-    const moveStep = cubeSize;
-    const rotateStep = Math.PI / 24;
     
-    switch (e.key.toLowerCase()) {
-      case 'arrowup':
-      case 'arrowdown':
-      case 'arrowleft':
-      case 'arrowright':
+    const key = e.key.toLowerCase();
+    
+    // Zone 전환 (화살표 키는 즉시 처리)
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'ArrowDown':
+      case 'ArrowLeft':
+      case 'ArrowRight':
         e.preventDefault();
-        // Zone 전환
         let newZoneX = currentZoneX;
         let newZoneY = currentZoneY;
         
@@ -565,63 +574,99 @@ function initApp() {
         else if (e.key === 'ArrowRight') newZoneX += 1;
         
         switchToZone(newZoneX, newZoneY);
-        break;
-      case 'a': {
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
-        const left = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
-        camera.position.addScaledVector(left, moveStep);
-        break;
-      }
-      case 'd': {
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
-        const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
-        camera.position.addScaledVector(right, moveStep);
-        break;
-      }
-      case 'w': {
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
-        dir.y = 0;
-        dir.normalize();
-        camera.position.addScaledVector(dir, moveStep);
-        break;
-      }
-      case 's': {
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
-        dir.y = 0;
-        dir.normalize();
-        camera.position.addScaledVector(dir, -moveStep);
-        break;
-      }
-      case 'q': {
-        const viewDirection = new THREE.Vector3();
-        camera.getWorldDirection(viewDirection);
-        const pivotDistance = 10;
-        const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
-        const worldYAxis = new THREE.Vector3(0, 1, 0);
-        camera.position.sub(pivotPoint);
-        camera.position.applyAxisAngle(worldYAxis, rotateStep);
-        camera.position.add(pivotPoint);
-        camera.lookAt(pivotPoint);
-        break;
-      }
-      case 'e': {
-        const viewDirection = new THREE.Vector3();
-        camera.getWorldDirection(viewDirection);
-        const pivotDistance = 10;
-        const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
-        const worldYAxis = new THREE.Vector3(0, 1, 0);
-        camera.position.sub(pivotPoint);
-        camera.position.applyAxisAngle(worldYAxis, -rotateStep);
-        camera.position.add(pivotPoint);
-        camera.lookAt(pivotPoint);
-        break;
-      }
+        return;
+    }
+    
+    // 이동/회전 키 상태 업데이트
+    if (keyStates.hasOwnProperty(key)) {
+      keyStates[key] = true;
+      e.preventDefault(); // 기본 브라우저 동작 방지
     }
   });
+
+  window.addEventListener('keyup', (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    
+    const key = e.key.toLowerCase();
+    if (keyStates.hasOwnProperty(key)) {
+      keyStates[key] = false;
+      e.preventDefault();
+    }
+  });
+
+  // 페이지 포커스 잃을 때 모든 키 상태 리셋 (키가 눌린 채로 고정되는 것 방지)
+  window.addEventListener('blur', () => {
+    Object.keys(keyStates).forEach(key => {
+      keyStates[key] = false;
+    });
+  });
+
+  // 키 상태에 따른 부드러운 이동 처리 함수
+  function handleKeyboardMovement() {
+    let moved = false;
+    
+    // 수평 이동 처리
+    if (keyStates.a) {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const left = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
+      camera.position.addScaledVector(left, moveSpeed);
+      moved = true;
+    }
+    if (keyStates.d) {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
+      camera.position.addScaledVector(right, moveSpeed);
+      moved = true;
+    }
+    if (keyStates.w) {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      dir.y = 0;
+      dir.normalize();
+      camera.position.addScaledVector(dir, moveSpeed);
+      moved = true;
+    }
+    if (keyStates.s) {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      dir.y = 0;
+      dir.normalize();
+      camera.position.addScaledVector(dir, -moveSpeed);
+      moved = true;
+    }
+    
+    // 수직 이동 처리
+    if (keyStates.c) {
+      camera.position.y += moveSpeed; // 위로 이동
+      moved = true;
+    }
+    if (keyStates.z) {
+      camera.position.y -= moveSpeed; // 아래로 이동
+      moved = true;
+    }
+    
+    // 회전 처리
+    if (keyStates.q) {
+      const yawQuaternion = new THREE.Quaternion();
+      yawQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotateSpeed);
+      camera.quaternion.multiplyQuaternions(yawQuaternion, camera.quaternion);
+      moved = true;
+    }
+    if (keyStates.e) {
+      const yawQuaternion = new THREE.Quaternion();
+      yawQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -rotateSpeed);
+      camera.quaternion.multiplyQuaternions(yawQuaternion, camera.quaternion);
+      moved = true;
+    }
+    
+    if (moved) {
+      camera.quaternion.normalize();
+    }
+    
+    return moved;
+  }
 
   // Zone 전환 함수
   function switchToZone(newZoneX, newZoneY) {
@@ -925,6 +970,10 @@ function initApp() {
   // 렌더 루프
   function animate() {
     requestAnimationFrame(animate);
+    
+    // 키보드 입력에 따른 부드러운 이동 처리
+    handleKeyboardMovement();
+    
     renderer.render(scene, camera);
   }
 
