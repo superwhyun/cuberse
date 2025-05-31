@@ -4,14 +4,66 @@
   <meta charset="UTF-8">
   <title>큐브 쌓기 웹앱</title>
   <link rel="stylesheet" href="../src/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
 </head>
 <body>
+  <div class="loading-overlay" id="initial-loading">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">3D 환경 로딩 중...</div>
+  </div>
   <div id="container"></div>
   <div id="color-picker">
+    <button id="homeButton" style="margin-bottom: 16px;">🏠 홈으로</button>
     <h3>큐브 색상 선택</h3>
+    
+    <div id="preset-colors">
+      <div class="color-preset" data-color="#ff0000" style="background: #ff0000;" title="빨강"></div>
+      <div class="color-preset" data-color="#00ff00" style="background: #00ff00;" title="초록"></div>
+      <div class="color-preset" data-color="#0000ff" style="background: #0000ff;" title="파랑"></div>
+      <div class="color-preset" data-color="#ffff00" style="background: #ffff00;" title="노랑"></div>
+      <div class="color-preset" data-color="#ff00ff" style="background: #ff00ff;" title="마젠타"></div>
+      <div class="color-preset" data-color="#00ffff" style="background: #00ffff;" title="시안"></div>
+      <div class="color-preset" data-color="#ffffff" style="background: #ffffff;" title="흰색"></div>
+      <div class="color-preset" data-color="#000000" style="background: #000000;" title="검정"></div>
+      <div class="color-preset" data-color="#ff8000" style="background: #ff8000;" title="주황"></div>
+      <div class="color-preset" data-color="#8000ff" style="background: #8000ff;" title="보라"></div>
+    </div>
+    
+    <div style="margin: 16px 0; font-size: 0.9rem; color: #666;">또는 커스텀 색상:</div>
     <input type="color" id="cubeColor" value="#ff0000">
-    <button id="saveButton">Save</button>
+    <button id="downloadButton">📥 다운로드</button>
   </div>
-  <script type="module" src="../src/main.js"></script>
+  <script>
+    // 인증 체크: 로그인 안 했으면 로그인 페이지로 리다이렉트
+    const userId = localStorage.getItem('cuberse_current_user');
+    if (!userId) {
+      window.location.href = '/public/login.html';
+    } else {
+      console.log('THREE 객체:', window.THREE);
+      if (window.THREE) {
+        // main.js를 직접 포함
+        const script = document.createElement('script');
+        script.src = '../src/main-legacy.js';
+        script.onload = () => console.log('main-legacy.js 로딩 완료');
+        script.onerror = (e) => {
+          console.error('main-legacy.js 로딩 실패:', e);
+          document.getElementById('initial-loading').innerHTML = `
+            <div style="color: red; text-align: center;">
+              <div>스크립트 로딩에 실패했습니다</div>
+              <div style="font-size: 0.9em; margin-top: 10px;">페이지를 새로고침해주세요</div>
+            </div>
+          `;
+        };
+        document.head.appendChild(script);
+      } else {
+        document.getElementById('initial-loading').innerHTML = `
+          <div style="color: red; text-align: center;">
+            <div>Three.js 로딩에 실패했습니다</div>
+            <div style="font-size: 0.9em; margin-top: 10px;">페이지를 새로고침해주세요</div>
+          </div>
+        `;
+      }
+    }
+  </script>
 </body>
 </html>

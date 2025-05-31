@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>로그인 | Cuberse</title>
+  <link rel="stylesheet" href="../src/styles.css">
+</head>
+<body>
+  <div id="login-container">
+    <h2>로그인</h2>
+    <form id="login-form">
+      <input type="text" id="login-username" placeholder="아이디(이메일/닉네임)" required><br>
+      <input type="password" id="login-password" placeholder="비밀번호" required><br>
+      <button type="submit">로그인</button>
+    </form>
+    <hr>
+    <h3>회원가입</h3>
+    <form id="signup-form">
+      <input type="text" id="signup-username" placeholder="아이디(이메일/닉네임)" required><br>
+      <input type="password" id="signup-password" placeholder="비밀번호" required><br>
+      <button type="submit">회원가입</button>
+    </form>
+    <div id="login-message"></div>
+  </div>
+  <script type="module" src="../src/auth.js"></script>
+</body>
+</html>

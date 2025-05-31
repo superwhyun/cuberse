@@ -1,0 +1,75 @@
+project:
+  name: "Cuberse"
+  description: "마인크래프트 스타일의 웹 기반 3D 큐브 쌓기 애플리케이션으로, Three.js를 사용하여 브라우저에서 실시간 3D 블록 조작이 가능한 크리에이티브 툴"
+  version: "1.0.0"
+  tech_stack:
+    - Express.js (웹 서버)
+    - Three.js (3D 렌더링)
+    - HTML5/CSS3/ES6
+    - LocalStorage (데이터 저장)
+
+files:
+  "server.js":
+    description: "Express 정적 파일 서버 - public, src 폴더 서빙 및 라우팅 처리"
+    features:
+      - "포트 3000에서 HTTP 서버 실행"
+      - "정적 파일 서빙 (/public, /src 경로)"
+      - "루트 접근 시 index.html 제공"
+
+  "public/index.html":
+    description: "메인 애플리케이션 진입점 - 사용자 인증 체크 및 3D 큐브 환경 초기화"
+    features:
+      - "사용자 인증 상태 검증 (localStorage 기반)"
+      - "컬러 피커 UI 제공"
+      - "main.js 모듈 동적 로딩"
+
+  "public/login.html": 
+    description: "사용자 로그인 인터페이스"
+
+  "public/spaces.html":
+    description: "워크스페이스 관리 페이지"
+
+  "src/main.js":
+    description: "핵심 3D 큐브 쌓기 엔진 - Three.js 기반 실시간 3D 환경 구현"
+    features:
+      - "멀티 워크스페이스 지원 (URL 파라미터 기반 공간 분리)"
+      - "3D 씬 초기화 (카메라, 조명, 그리드)"
+      - "마우스 클릭으로 큐브 추가 (면 감지 및 스택킹)"
+      - "마우스 드래그로 카메라 회전 (수직/수평 제한)"
+      - "오른쪽 클릭으로 큐브 삭제"
+      - "키보드 WASD 이동, Q/E 회전"
+      - "마우스 휠 줌 기능"
+      - "실시간 큐브 하이라이트 (마우스 호버)"
+      - "자동 저장 시스템 (LocalStorage)"
+      - "JSON 파일 내보내기/가져오기 (드래그앤드롭)"
+      - "컬러 피커 연동 큐브 색상 변경"
+
+  "src/auth.js":
+    description: "사용자 인증 관리 모듈"
+
+  "src/spaces.js":
+    description: "워크스페이스 관리 기능"
+
+  "src/styles.css":
+    description: "UI 스타일시트"
+
+todo:
+  high_priority:
+    - "로그인 시스템 구현 완료 (auth.js 기능 개발)"
+    - "워크스페이스 관리 UI 개발 (spaces.html/spaces.js 연동)"
+    - "큐브 텍스처 시스템 추가 (재질 다양화)"
+    - "실행 취소/다시 실행 기능 구현"
+    - "멀티플레이어 실시간 협업 기능"
+
+  medium_priority:
+    - "큐브 그룹 선택/조작 기능"
+    - "복사/붙여넣기 기능"
+    - "미니맵 추가"
+    - "모바일 터치 인터페이스 최적화"
+    - "성능 최적화 (LOD, 컬링)"
+
+  low_priority:
+    - "프리셋 템플릿 시스템"
+    - "애니메이션 효과 개선"
+    - "사운드 효과 추가"
+    - "VR 지원"

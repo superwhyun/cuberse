@@ -1,6 +1,4 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-
-console.log('main.js 로딩됨, THREE:', THREE);
+console.log('main-legacy.js 로딩됨, THREE:', window.THREE);
 
 // 유틸리티 함수들
 function showLoading(text = '로딩 중...') {
@@ -17,6 +15,8 @@ function showLoading(text = '로딩 중...') {
 function hideLoading() {
   const overlay = document.getElementById('loading-overlay');
   if (overlay) overlay.remove();
+  const initialLoading = document.getElementById('initial-loading');
+  if (initialLoading) initialLoading.remove();
 }
 
 function showToast(message, isError = false) {
@@ -32,9 +32,14 @@ function showToast(message, isError = false) {
   }, 3000);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('DOMContentLoaded 이벤트 발생');
-  showLoading('3D 환경 초기화 중...');
+function initApp() {
+  console.log('initApp 함수 시작');
+  const THREE = window.THREE;
+  
+  if (!THREE) {
+    console.error('THREE.js가 로드되지 않았습니다');
+    return;
+  }
   
   try {
   // ---- Multi-Space/Workspace Support ----
@@ -63,6 +68,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const spaceId = getSpaceIdFromUrl();
   // ---- End Multi-Space/Workspace Support ----
+  
+  console.log('워크스페이스 ID:', spaceId);
+  
   let hoveredCube = null;
   let hoveredFaceNormal = null;
   let highlightEdge = null;
@@ -93,30 +101,36 @@ document.addEventListener('DOMContentLoaded', () => {
   // 씬, 카메라, 렌더러 생성
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
+  console.log('씬 생성:', scene);
 
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(10, 15, 20);
   camera.lookAt(0, 0, 0);
+  console.log('카메라 생성:', camera);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   container.appendChild(renderer.domElement);
+  console.log('렌더러 생성 및 추가:', renderer);
 
   // 그리드 생성
   const gridSize = 20;
   const gridDivisions = 20;
   const gridHelper = new THREE.GridHelper(gridSize, gridDivisions);
   scene.add(gridHelper);
+  console.log('그리드 추가:', gridHelper);
 
   // 조명
   const light = new THREE.DirectionalLight(0xffffff, 0.8);
   light.position.set(10, 20, 10);
   scene.add(light);
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+  console.log('조명 추가');
 
   // 큐브 쌓기
   const cubeSize = gridSize / gridDivisions;
   const cubes = [];
+  console.log('큐브 크기:', cubeSize);
 
   function addCube(x, y, z, color) {
     // 이미 해당 위치에 큐브가 있으면 중복 생성 방지
@@ -142,75 +156,58 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 마우스 클릭으로 큐브 추가 (큐브 위 또는 바닥)
-renderer.domElement.addEventListener('click', (event) => {
-  if (wasDraggingJustNow) {
-    wasDraggingJustNow = false;
-    return;
-  }
-
-  const rect = renderer.domElement.getBoundingClientRect();
-  const mouse = new THREE.Vector2(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -((event.clientY - rect.top) / rect.height) * 2 + 1
-  );
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(mouse, camera);
-
-  // hover된 큐브와 면이 있으면 그 정보를 사용
-  if (hoveredCube && hoveredFaceNormal) {
-    const gridX = Math.round((hoveredCube.position.x / cubeSize) + gridDivisions / 2 - 0.5);
-    const gridY = Math.round((hoveredCube.position.y / cubeSize) - 0.5);
-    const gridZ = Math.round((hoveredCube.position.z / cubeSize) + gridDivisions / 2 - 0.5);
-    const nextX = gridX + Math.round(hoveredFaceNormal.x);
-    const nextY = gridY + Math.round(hoveredFaceNormal.y);
-    const nextZ = gridZ + Math.round(hoveredFaceNormal.z);
-    if (
-      nextX >= 0 && nextX < gridDivisions &&
-      nextY >= 0 &&
-      nextZ >= 0 && nextZ < gridDivisions
-    ) {
-      addCube(nextX, nextY, nextZ, cubeColor);
+  renderer.domElement.addEventListener('click', (event) => {
+    if (wasDraggingJustNow) {
+      wasDraggingJustNow = false;
+      return;
     }
-    return;
-  }
 
-  // (hover된 큐브가 없으면 바닥 클릭 기존 코드)
-  const cubeIntersects = raycaster.intersectObjects(cubes);
-  if (cubeIntersects.length > 0) {
-    // fallback: 기존 동작 유지
-    const target = cubeIntersects[0].object;
-    const faceNormal = cubeIntersects[0].face.normal;
-    const gridX = Math.round((target.position.x / cubeSize) + gridDivisions / 2 - 0.5);
-    const gridY = Math.round((target.position.y / cubeSize) - 0.5);
-    const gridZ = Math.round((target.position.z / cubeSize) + gridDivisions / 2 - 0.5);
-    const nextX = gridX + Math.round(faceNormal.x);
-    const nextY = gridY + Math.round(faceNormal.y);
-    const nextZ = gridZ + Math.round(faceNormal.z);
-    if (
-      nextX >= 0 && nextX < gridDivisions &&
-      nextY >= 0 &&
-      nextZ >= 0 && nextZ < gridDivisions
-    ) {
-      addCube(nextX, nextY, nextZ, cubeColor);
-    }
-    return;
-  }
+    const rect = renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
 
-  // 바닥 클릭 - 기존 코드
-  const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
-  if (intersect) {
-    let x = Math.floor(intersect.x / cubeSize + gridDivisions / 2);
-    let z = Math.floor(intersect.z / cubeSize + gridDivisions / 2);
-    if (x >= 0 && x < gridDivisions && z >= 0 && z < gridDivisions) {
-      let y = cubes.filter(cube =>
-        Math.abs(cube.position.x - ((x - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01 &&
-        Math.abs(cube.position.z - ((z - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01
-      ).length;
-      addCube(x, y, z, cubeColor);
+    // hover된 큐브와 면이 있으면 그 정보를 사용 (공중 연결)
+    if (hoveredCube && hoveredFaceNormal) {
+      const gridX = Math.round((hoveredCube.position.x / cubeSize) + gridDivisions / 2 - 0.5);
+      const gridY = Math.round((hoveredCube.position.y / cubeSize) - 0.5);
+      const gridZ = Math.round((hoveredCube.position.z / cubeSize) + gridDivisions / 2 - 0.5);
+      const nextX = gridX + Math.round(hoveredFaceNormal.x);
+      const nextY = gridY + Math.round(hoveredFaceNormal.y);
+      const nextZ = gridZ + Math.round(hoveredFaceNormal.z);
+      if (
+        nextX >= 0 && nextX < gridDivisions &&
+        nextY >= 0 &&
+        nextZ >= 0 && nextZ < gridDivisions
+      ) {
+        addCube(nextX, nextY, nextZ, cubeColor);
+      }
+      return;
     }
-  }
-});
+
+    // 바닥 클릭 - 빈 공간이면 바닥부터 쌓기
+    const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
+    if (intersect) {
+      let x = Math.floor(intersect.x / cubeSize + gridDivisions / 2);
+      let z = Math.floor(intersect.z / cubeSize + gridDivisions / 2);
+      if (x >= 0 && x < gridDivisions && z >= 0 && z < gridDivisions) {
+        // 해당 x,z 위치에서 가장 낮은 빈 공간 찾기
+        let y = 0;
+        while (cubes.some(cube =>
+          Math.abs(cube.position.x - ((x - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01 &&
+          Math.abs(cube.position.y - ((y + 0.5) * cubeSize)) < 0.01 &&
+          Math.abs(cube.position.z - ((z - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01
+        )) {
+          y++;
+        }
+        addCube(x, y, z, cubeColor);
+      }
+    }
+  });
 
   // Mouse listeners for drag, highlight
   renderer.domElement.addEventListener('mousedown', (event) => {
@@ -263,13 +260,10 @@ renderer.domElement.addEventListener('click', (event) => {
             camera.getWorldDirection(viewDirection);
 
             // Axis for vertical rotation: perpendicular to view and world UP.
-            // This is essentially the camera's local X-axis if camera.up is aligned with world Y.
-            // However, camera.up can change, so we derive it based on view direction and a fixed world UP.
             const worldUp = new THREE.Vector3(0, 1, 0);
             let rotationAxis = new THREE.Vector3().crossVectors(viewDirection, worldUp).normalize();
 
             // If camera is looking straight up or down, cross product might be zero.
-            // In such cases, we can use camera's local X axis (derived from its quaternion)
             if (rotationAxis.lengthSq() < 0.001) {
                 rotationAxis = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
             }
@@ -287,9 +281,6 @@ renderer.domElement.addEventListener('click', (event) => {
 
             if (Math.abs(newAngleWithHorizontal) < maxVerticalAngle) {
                 camera.position.copy(lookAtPoint).add(newPosRelativeToLookAt);
-                // Rotate camera.up as well, but ensure it's somewhat aligned with world up
-                // This part is tricky; directly rotating camera.up can lead to it pointing downwards.
-                // A common approach is to set camera.up towards world Y and then re-lookAt.
                 camera.lookAt(lookAtPoint);
             }
         }
@@ -309,7 +300,7 @@ renderer.domElement.addEventListener('click', (event) => {
             hoveredCube = target;
             hoveredFaceNormal = faceNormal.clone();
             const edgeGeom = new THREE.EdgesGeometry(target.geometry);
-            const edgeMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 }); // Thinner line
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 });
             highlightEdge = new THREE.LineSegments(edgeGeom, edgeMat);
             highlightEdge.position.copy(target.position);
             scene.add(highlightEdge);
@@ -336,7 +327,28 @@ renderer.domElement.addEventListener('click', (event) => {
   // 색상 선택
   colorInput.addEventListener('input', (e) => {
     cubeColor = e.target.value;
+    // 모든 프리셋 색상에서 selected 클래스 제거
+    document.querySelectorAll('.color-preset').forEach(preset => {
+      preset.classList.remove('selected');
+    });
   });
+
+  // 프리셋 색상 클릭 이벤트
+  document.querySelectorAll('.color-preset').forEach(preset => {
+    preset.addEventListener('click', () => {
+      const selectedColor = preset.getAttribute('data-color');
+      cubeColor = selectedColor;
+      colorInput.value = selectedColor;
+      
+      // 모든 프리셋에서 selected 클래스 제거
+      document.querySelectorAll('.color-preset').forEach(p => p.classList.remove('selected'));
+      // 클릭된 프리셋에 selected 클래스 추가
+      preset.classList.add('selected');
+    });
+  });
+
+  // 첫 번째 프리셋 색상(빨강)을 기본 선택으로 설정
+  document.querySelector('.color-preset[data-color="#ff0000"]').classList.add('selected');
 
   // 확대/축소 (마우스 휠)
   renderer.domElement.addEventListener('wheel', (e) => {
@@ -349,7 +361,6 @@ renderer.domElement.addEventListener('click', (event) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
     const moveStep = cubeSize;
     const rotateStep = Math.PI / 24;
-    console.log(`[키 입력] e.key: ${e.key}, e.code: ${e.code}`);
     switch (e.key.toLowerCase()) {
       case 'a': {
         const dir = new THREE.Vector3();
@@ -381,41 +392,30 @@ renderer.domElement.addEventListener('click', (event) => {
         camera.position.addScaledVector(dir, -moveStep);
         break;
       }
-      case 'e': {
-        // Rotate left around a dynamic pivot point
-        const viewDirection = new THREE.Vector3();
-        camera.getWorldDirection(viewDirection);
-        const pivotDistance = 10; // Fixed distance to pivot point
-        const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
-
-        const worldYAxis = new THREE.Vector3(0, 1, 0);
-
-        camera.position.sub(pivotPoint); // Translate camera to pivot's origin
-        camera.position.applyAxisAngle(worldYAxis, rotateStep); // Rotate
-        camera.position.add(pivotPoint); // Translate camera back
-
-        camera.lookAt(pivotPoint); // Look at the pivot point
-        break;
-      }
       case 'q': {
-        // Rotate right around a dynamic pivot point
         const viewDirection = new THREE.Vector3();
         camera.getWorldDirection(viewDirection);
-        const pivotDistance = 10; // Fixed distance to pivot point
+        const pivotDistance = 10;
         const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
-
         const worldYAxis = new THREE.Vector3(0, 1, 0);
-
-        camera.position.sub(pivotPoint); // Translate camera to pivot's origin
-        camera.position.applyAxisAngle(worldYAxis, -rotateStep); // Rotate (negative for right)
-        camera.position.add(pivotPoint); // Translate camera back
-
-        camera.lookAt(pivotPoint); // Look at the pivot point
+        camera.position.sub(pivotPoint);
+        camera.position.applyAxisAngle(worldYAxis, rotateStep);
+        camera.position.add(pivotPoint);
+        camera.lookAt(pivotPoint);
         break;
       }
-      default:
-        // do nothing
+      case 'e': {
+        const viewDirection = new THREE.Vector3();
+        camera.getWorldDirection(viewDirection);
+        const pivotDistance = 10;
+        const pivotPoint = new THREE.Vector3().addVectors(camera.position, viewDirection.multiplyScalar(pivotDistance));
+        const worldYAxis = new THREE.Vector3(0, 1, 0);
+        camera.position.sub(pivotPoint);
+        camera.position.applyAxisAngle(worldYAxis, -rotateStep);
+        camera.position.add(pivotPoint);
+        camera.lookAt(pivotPoint);
         break;
+      }
     }
   });
 
@@ -436,22 +436,9 @@ renderer.domElement.addEventListener('click', (event) => {
       addCube(gridX, gridY, gridZ, cubeData.color);
     });
   }
-  // ---- End 자동 로드 ----
 
-  // 렌더 루프
-  function animate() {
-    requestAnimationFrame(animate);
-    renderer.render(scene, camera);
-  }
-
-  // contextmenu(오른쪽 클릭) 시, 마우스 위치에 가장 가까운 큐브(raycast hit)가 있으면 scene에서 제거하고 cubes 배열에서도 삭제
-  // 기본 브라우저 context menu 동작은 preventDefault()로 차단
+  // 오른쪽 클릭으로 큐브 삭제
   renderer.domElement.addEventListener('contextmenu', (event) => {
-    // 삭제 후 자동 저장
-    // (이벤트 핸들러 끝에 autoSaveCurrentSpace 추가)
-
-    // event.preventDefault(); // Only preventDefault if we are actually removing a cube
-
     const rect = renderer.domElement.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -462,27 +449,25 @@ renderer.domElement.addEventListener('click', (event) => {
 
     const intersects = raycaster.intersectObjects(cubes);
     if (intersects.length > 0) {
-      event.preventDefault(); // Prevent context menu only if a cube is targeted for removal
+      event.preventDefault();
       const targetCube = intersects[0].object;
       scene.remove(targetCube);
       const idx = cubes.indexOf(targetCube);
       if (idx > -1) cubes.splice(idx, 1);
 
-      // Remove highlight if the removed cube was highlighted
       if (highlightEdge && highlightEdge.position.equals(targetCube.position)) {
           scene.remove(highlightEdge);
           highlightEdge = null;
       }
       autoSaveCurrentSpace();
     }
-    // If no cube is intersected, allow the default context menu to appear
   });
 
-  // Save button functionality
-  const saveButton = document.getElementById('saveButton');
-  if (saveButton) {
-    saveButton.addEventListener('click', () => {
-      showLoading('파일 저장 중...');
+  // Download button functionality
+  const downloadButton = document.getElementById('downloadButton');
+  if (downloadButton) {
+    downloadButton.addEventListener('click', () => {
+      showLoading('파일 생성 중...');
       
       setTimeout(() => {
         const sceneData = cubes.map(cube => ({
@@ -491,12 +476,12 @@ renderer.domElement.addEventListener('click', (event) => {
           z: cube.position.z,
           color: `#${cube.material.color.getHexString()}`
         }));
-        saveSpace(spaceId, sceneData); // 명시적 저장
+        saveSpace(spaceId, sceneData);
         const jsonString = JSON.stringify(sceneData, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const anchorElement = document.createElement('a');
         anchorElement.href = URL.createObjectURL(blob);
-        anchorElement.download = `scene_${spaceId}.json`;
+        anchorElement.download = `cuberse_scene_${spaceId}.json`;
         anchorElement.click();
         URL.revokeObjectURL(anchorElement.href);
         
@@ -506,63 +491,25 @@ renderer.domElement.addEventListener('click', (event) => {
     });
   }
 
-  // Drag and drop load functionality
-  renderer.domElement.addEventListener('dragover', (event) => {
-    event.preventDefault(); // Allow dropping
-  });
+  // Home button functionality
+  const homeButton = document.getElementById('homeButton');
+  if (homeButton) {
+    homeButton.addEventListener('click', () => {
+      window.location.href = '/public/spaces.html';
+    });
+  }
 
-  renderer.domElement.addEventListener('drop', (event) => {
-    // drop으로 씬을 불러오면 해당 공간에 autoSave도 함께 적용
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const file = event.dataTransfer.files[0];
-    if (file && file.type === 'application/json') {
-      showLoading('파일 로딩 중...');
-      
-      const reader = new FileReader();
-
-      reader.onload = (e) => {
-        try {
-          const loadedSceneData = JSON.parse(e.target.result);
-
-          // Clear existing cubes
-          cubes.forEach(cube => scene.remove(cube));
-          cubes.length = 0; // Clear the array
-
-          // Load new cubes
-          loadedSceneData.forEach(cubeData => {
-            // Convert absolute positions from JSON back to grid coordinates for addCube
-            const gridX = (cubeData.x / cubeSize) - 0.5 + gridDivisions / 2;
-            const gridY = (cubeData.y / cubeSize) - 0.5;
-            const gridZ = (cubeData.z / cubeSize) - 0.5 + gridDivisions / 2;
-
-            addCube(gridX, gridY, gridZ, cubeData.color);
-          });
-          autoSaveCurrentSpace();
-          hideLoading();
-          showToast('파일이 성공적으로 로드되었습니다');
-        } catch (error) {
-          console.error('Error parsing JSON file:', error);
-          hideLoading();
-          showToast('유효하지 않은 JSON 파일입니다', true);
-        }
-      };
-
-      reader.onerror = (error) => {
-        console.error('Error reading file:', error);
-        hideLoading();
-        showToast('파일 읽기에 실패했습니다', true);
-      };
-
-      reader.readAsText(file);
-    } else if (file) {
-      showToast('JSON 파일만 업로드 가능합니다', true);
-    }
-  });
+  // 렌더 루프
+  function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  }
 
   console.log('3D 환경 초기화 완료');
+  console.log('그리드 추가됨:', scene.children.length, '개 객체');
+  console.log('카메라 위치:', camera.position);
+  console.log('렌더러 크기:', renderer.domElement.width, 'x', renderer.domElement.height);
+  
   hideLoading();
   animate();
   
@@ -571,4 +518,14 @@ renderer.domElement.addEventListener('click', (event) => {
     hideLoading();
     showToast('3D 환경 로딩에 실패했습니다', true);
   }
-});
+}
+
+// DOM이 준비되었는지 확인하고 초기화
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  console.log('DOM이 이미 준비됨, 즉시 초기화');
+  initApp();
+}
+
+// %%%%%LAST%%%%%

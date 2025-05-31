@@ -1,25 +1,30 @@
 body {
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
   font-family: 'Noto Sans KR', Arial, sans-serif;
-  background: #e9ecef;
+  background: linear-gradient(135deg, #e9ecef 0%, #f7fafc 100%);
+  min-height: 100vh;
 }
 
 #container {
+  /* unchanged */
+
   position: absolute;
   left: 0;
   top: 0;
-  width: calc(100vw - 220px);
+  width: calc(100vw - 240px);
   height: 100vh;
   box-sizing: border-box;
 }
 
 #color-picker {
+  /* unchanged */
+
   position: absolute;
   right: 0;
   top: 0;
-  width: 220px;
+  width: 240px;
   height: 100vh;
   background: #fff;
   border-left: 1px solid #ccc;
@@ -29,6 +34,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-y: auto;
 }
 
 #color-picker h3 {
@@ -39,10 +45,365 @@ body {
 }
 
 #cubeColor {
+  /* unchanged */
+
   width: 80px;
   height: 80px;
   border: none;
   background: none;
   cursor: pointer;
   margin-bottom: 16px;
+}
+
+#preset-colors {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+  width: 100%;
+}
+
+.color-preset {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 2px solid #e2e8f0;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.color-preset:hover {
+  transform: scale(1.1);
+  border-color: #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.color-preset.selected {
+  border-color: #6366f1;
+  border-width: 3px;
+  transform: scale(1.05);
+  box-shadow: 0 0 0 2px #a5b4fc44;
+}
+
+.color-preset[style*="ffffff"] {
+  border-color: #cbd5e1;
+}
+
+.color-preset[style*="ffffff"]:hover,
+.color-preset[style*="ffffff"].selected {
+  border-color: #6366f1;
+}
+
+#downloadButton {
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px 0 rgba(16, 185, 129, 0.2);
+  transition: all 0.2s ease;
+  margin-top: 16px;
+}
+
+#downloadButton:hover {
+  background: linear-gradient(90deg, #059669 0%, #047857 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px 0 rgba(16, 185, 129, 0.3);
+}
+
+#downloadButton:active {
+  transform: translateY(0);
+}
+
+#homeButton {
+  background: linear-gradient(90deg, #6366f1 0%, #60a5fa 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px 0 rgba(99, 102, 241, 0.2);
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+#homeButton:hover {
+  background: linear-gradient(90deg, #5b21b6 0%, #2563eb 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px 0 rgba(99, 102, 241, 0.3);
+}
+
+#homeButton:active {
+  transform: translateY(0);
+}
+
+/* ---- 로그인/회원가입/공간 카드 스타일 ---- */
+
+#login-container, #spaces-container {
+  max-width: 350px;
+  margin: 80px auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 6px 32px 0 rgba(0,0,0,0.10), 0 1.5px 4px 0 rgba(0,0,0,0.03);
+  padding: 38px 34px 30px 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+#login-container h2, #spaces-container h2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 2rem;
+  color: #2d3748;
+  font-weight: 700;
+  letter-spacing: -1px;
+}
+
+#login-container h3 {
+  margin-top: 32px;
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+  color: #4a5568;
+}
+
+#login-form, #signup-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+#login-form input, #signup-form input {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #cbd5e1;
+  outline: none;
+  font-size: 1rem;
+  margin-bottom: 0;
+  background: #f7fafc;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+#login-form input:focus, #signup-form input:focus {
+  border: 1.5px solid #6366f1;
+  box-shadow: 0 0 0 2px #a5b4fc44;
+}
+
+#login-form button, #signup-form button, #create-space, #logout-btn, .delete-btn {
+  background: linear-gradient(90deg, #6366f1 0%, #60a5fa 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 0;
+  margin-top: 8px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px 0 rgba(99,102,241,0.07);
+  transition: background 0.2s, transform 0.1s;
+}
+#login-form button:hover, #signup-form button:hover, #create-space:hover, #logout-btn:hover, .delete-btn:hover {
+  background: linear-gradient(90deg, #6366f1 20%, #2563eb 100%);
+  transform: translateY(-2px) scale(1.03);
+}
+
+#login-message {
+  margin-top: 18px;
+  color: #e53e3e;
+  font-size: 0.97rem;
+  min-height: 18px;
+  text-align: center;
+}
+
+#spaces-container #user-info {
+  font-size: 1.08rem;
+  color: #64748b;
+  margin-bottom: 18px;
+  text-align: left;
+  width: 100%;
+}
+#spaces-container ul#space-list {
+  width: 100%;
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 24px;
+}
+#spaces-container ul#space-list li {
+  background: #f1f5f9;
+  border-radius: 7px;
+  margin-bottom: 10px;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 1.08rem;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.03);
+  transition: box-shadow 0.2s, background 0.15s;
+}
+#spaces-container ul#space-list li:hover {
+  background: #e0e7ef;
+  box-shadow: 0 2px 7px 0 rgba(99,102,241,0.09);
+}
+#spaces-container ul#space-list a {
+  color: #6366f1;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+#spaces-container ul#space-list a:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.delete-btn {
+  background: #e53e3e;
+  color: #fff;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 0.97rem;
+  margin-left: 10px;
+  box-shadow: none;
+  transition: background 0.2s;
+}
+.delete-btn:hover {
+  background: #c53030;
+}
+#logout-btn {
+  margin-top: 18px;
+  width: 100%;
+  background: #64748b;
+  background: linear-gradient(90deg, #64748b 0%, #94a3b8 100%);
+  color: #fff;
+}
+#logout-btn:hover {
+  background: #334155;
+}
+
+@media (max-width: 500px) {
+  #login-container, #spaces-container {
+    max-width: 98vw;
+    padding: 18px 4vw 18px 4vw;
+    margin: 30px auto;
+  }
+  
+  #container {
+    width: 100vw;
+    height: calc(100vh - 200px);
+  }
+  
+  #color-picker {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    height: 200px;
+    border-left: none;
+    border-top: 1px solid #ccc;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 12px;
+    overflow-y: auto;
+  }
+  
+  #color-picker h3 {
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+  }
+  
+  #preset-colors {
+    grid-template-columns: repeat(10, 1fr);
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  
+  .color-preset {
+    width: 25px;
+    height: 25px;
+  }
+  
+  #cubeColor {
+    width: 50px;
+    height: 50px;
+    margin: 0;
+  }
+  
+  #downloadButton {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    margin: 8px 0 0 0;
+  }
+  
+  #homeButton {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+  }
+}
+
+/* 로딩 스피너 */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #e5e7eb;
+  border-top: 4px solid #6366f1;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 1.1rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 토스트 알림 */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #10b981;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10000;
+  opacity: 0;
+  transform: translateX(100px);
+  transition: all 0.3s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast.error {
+  background: #ef4444;
 }
