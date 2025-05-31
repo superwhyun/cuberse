@@ -43,7 +43,7 @@ function renderSpaces() {
   ul.innerHTML = '';
   spaces.forEach(spaceId => {
     const li = document.createElement('li');
-    li.innerHTML = `<a href="/public/index.html?space=${spaceId}">공간 #${spaceId}</a> <button data-id="${spaceId}" class="delete-btn">삭제</button>`;
+    li.innerHTML = `<a href="/?space=${spaceId}">공간 #${spaceId}</a> <button data-id="${spaceId}" class="delete-btn">삭제</button>`;
     ul.appendChild(li);
   });
 }
@@ -56,7 +56,7 @@ window.onload = function() {
     renderSpaces();
     showToast('새 공간이 생성되었습니다');
     setTimeout(() => {
-      window.location.href = `/public/index.html?space=${spaceId}`;
+      window.location.href = `/?space=${spaceId}`;
     }, 1000);
   };
   document.getElementById('logout-btn').onclick = function() {
