@@ -693,7 +693,7 @@ function initApp() {
     return moved;
   }
 
-  // Zone 전환 함수
+  // Zone 전환 함수 (부드러운 슬라이딩 애니메이션)
   function switchToZone(newZoneX, newZoneY) {
     if (newZoneX === currentZoneX && newZoneY === currentZoneY) return;
     
@@ -703,47 +703,77 @@ function initApp() {
     const deltaX = newZoneX - currentZoneX;
     const deltaY = newZoneY - currentZoneY;
     
-    // 카메라 위치를 Zone 이동량만큼 평행이동 (X, Z만 이동, Y와 방향 유지)
-    camera.position.x += deltaX * ZONE_SIZE;
-    camera.position.z += deltaY * ZONE_SIZE;
+    // 시작 위치와 목표 위치 설정
+    const startX = camera.position.x;
+    const startZ = camera.position.z;
+    const targetX = startX + (deltaX * ZONE_SIZE);
+    const targetZ = startZ + (deltaY * ZONE_SIZE);
     
-    currentZoneX = newZoneX;
-    currentZoneY = newZoneY;
+    // 애니메이션 변수
+    let animationProgress = 0;
+    const animationDuration = 800; // 800ms
+    const startTime = performance.now();
     
-    // 새 Zone 그리드 생성 (없다면) - 비활성으로 생성
-    const zoneKey = getCurrentZoneKey();
-    if (!zoneGrids.has(zoneKey)) {
-      createZoneGrid(currentZoneX, currentZoneY, false);
-    }
-    
-    // 새 Zone 텍스트 생성 (없다면)
-    if (!zoneTexts.has(zoneKey)) {
-      createZoneText(currentZoneX, currentZoneY);
-    }
-    
-    // 인접 Zone들도 생성 - 모두 비활성으로
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const adjacentX = currentZoneX + dx;
-        const adjacentY = currentZoneY + dy;
-        const adjacentKey = getZoneKey(adjacentX, adjacentY);
+    // 부드러운 슬라이딩 애니메이션
+    function animateZoneTransition(currentTime) {
+      const elapsed = currentTime - startTime;
+      animationProgress = Math.min(elapsed / animationDuration, 1);
+      
+      // easeInOutQuad 이징 함수로 부드러운 움직임
+      const easeProgress = animationProgress < 0.5 
+        ? 2 * animationProgress * animationProgress
+        : 1 - Math.pow(-2 * animationProgress + 2, 2) / 2;
+      
+      // 카메라 위치 보간
+      camera.position.x = startX + (targetX - startX) * easeProgress;
+      camera.position.z = startZ + (targetZ - startZ) * easeProgress;
+      
+      if (animationProgress < 1) {
+        requestAnimationFrame(animateZoneTransition);
+      } else {
+        // 애니메이션 완료 시 Zone 정보 업데이트
+        currentZoneX = newZoneX;
+        currentZoneY = newZoneY;
         
-        // 그리드 생성
-        if (!zoneGrids.has(adjacentKey)) {
-          createZoneGrid(adjacentX, adjacentY, false);
+        // 새 Zone 그리드 생성 (없다면) - 비활성으로 생성
+        const zoneKey = getCurrentZoneKey();
+        if (!zoneGrids.has(zoneKey)) {
+          createZoneGrid(currentZoneX, currentZoneY, false);
         }
         
-        // 텍스트 생성
-        if (!zoneTexts.has(adjacentKey)) {
-          createZoneText(adjacentX, adjacentY);
+        // 새 Zone 텍스트 생성 (없다면)
+        if (!zoneTexts.has(zoneKey)) {
+          createZoneText(currentZoneX, currentZoneY);
         }
+        
+        // 인접 Zone들도 생성 - 모두 비활성으로
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const adjacentX = currentZoneX + dx;
+            const adjacentY = currentZoneY + dy;
+            const adjacentKey = getZoneKey(adjacentX, adjacentY);
+            
+            // 그리드 생성
+            if (!zoneGrids.has(adjacentKey)) {
+              createZoneGrid(adjacentX, adjacentY, false);
+            }
+            
+            // 텍스트 생성
+            if (!zoneTexts.has(adjacentKey)) {
+              createZoneText(adjacentX, adjacentY);
+            }
+          }
+        }
+        
+        // 바닥 면 업데이트 (현재 Zone만 활성)
+        updateZoneFloors();
+        
+        showToast(`Zone (${currentZoneX}, ${currentZoneY})로 이동`);
       }
     }
     
-    // 바닥 면 업데이트 (현재 Zone만 활성)
-    updateZoneFloors();
-    
-    showToast(`Zone (${currentZoneX}, ${currentZoneY})로 이동`);
+    // 애니메이션 시작
+    requestAnimationFrame(animateZoneTransition);
   }
 
   // 반응형
