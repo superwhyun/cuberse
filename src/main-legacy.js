@@ -565,14 +565,39 @@ function initApp() {
       case 'ArrowLeft':
       case 'ArrowRight':
         e.preventDefault();
-        let newZoneX = currentZoneX;
-        let newZoneY = currentZoneY;
         
-        if (e.key === 'ArrowUp') newZoneY -= 1;
-        else if (e.key === 'ArrowDown') newZoneY += 1;
-        else if (e.key === 'ArrowLeft') newZoneX -= 1;
-        else if (e.key === 'ArrowRight') newZoneX += 1;
+        // 현재 카메라가 보는 방향을 기준으로 Zone 이동 계산
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
         
+        // 카메라의 오른쪽 방향 벡터 계산
+        const cameraRight = new THREE.Vector3();
+        cameraRight.crossVectors(cameraDirection, camera.up).normalize();
+        
+        let deltaX = 0, deltaY = 0;
+        
+        if (e.key === 'ArrowUp') {
+          // 현재 보는 방향으로 이동
+          deltaX = Math.round(cameraDirection.x);
+          deltaY = Math.round(cameraDirection.z);
+        } else if (e.key === 'ArrowDown') {
+          // 현재 보는 방향 반대로 이동
+          deltaX = -Math.round(cameraDirection.x);
+          deltaY = -Math.round(cameraDirection.z);
+        } else if (e.key === 'ArrowLeft') {
+          // 현재 보는 방향 기준 왼쪽으로 이동
+          deltaX = -Math.round(cameraRight.x);
+          deltaY = -Math.round(cameraRight.z);
+        } else if (e.key === 'ArrowRight') {
+          // 현재 보는 방향 기준 오른쪽으로 이동
+          deltaX = Math.round(cameraRight.x);
+          deltaY = Math.round(cameraRight.z);
+        }
+        
+        const newZoneX = currentZoneX + deltaX;
+        const newZoneY = currentZoneY + deltaY;
+        
+        console.log(`카메라 방향 기준 Zone 이동: (${deltaX}, ${deltaY}) → Zone (${newZoneX}, ${newZoneY})`);
         switchToZone(newZoneX, newZoneY);
         return;
     }
@@ -674,16 +699,16 @@ function initApp() {
     
     console.log(`Zone 전환: (${currentZoneX},${currentZoneY}) → (${newZoneX},${newZoneY})`);
     
+    // Zone 이동량 계산
+    const deltaX = newZoneX - currentZoneX;
+    const deltaY = newZoneY - currentZoneY;
+    
+    // 카메라 위치를 Zone 이동량만큼 평행이동 (X, Z만 이동, Y와 방향 유지)
+    camera.position.x += deltaX * ZONE_SIZE;
+    camera.position.z += deltaY * ZONE_SIZE;
+    
     currentZoneX = newZoneX;
     currentZoneY = newZoneY;
-    
-    // 카메라 이동 (부드러운 전환)
-    const targetX = currentZoneX * ZONE_SIZE;
-    const targetZ = currentZoneY * ZONE_SIZE;
-    
-    camera.position.x = targetX;
-    camera.position.z = targetZ + 20; // Zone 앞쪽에서 바라보기
-    camera.lookAt(targetX, 0, targetZ);
     
     // 새 Zone 그리드 생성 (없다면) - 비활성으로 생성
     const zoneKey = getCurrentZoneKey();
