@@ -887,7 +887,7 @@ function initApp() {
   const homeButton = document.getElementById('homeButton');
   if (homeButton) {
     homeButton.addEventListener('click', () => {
-      window.location.href = '/public/spaces.html';
+      window.location.href = '/spaces.html';
     });
   }
 

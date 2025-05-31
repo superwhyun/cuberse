@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>큐브 쌓기 웹앱</title>
-  <link rel="stylesheet" href="../src/styles.css">
+  <link rel="stylesheet" href="src/styles.css">
   <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
 </head>
 <body>
@@ -65,13 +65,13 @@
     // 인증 체크: 로그인 안 했으면 로그인 페이지로 리다이렉트
     const userId = localStorage.getItem('cuberse_current_user');
     if (!userId) {
-      window.location.href = '/public/login.html';
+      window.location.href = '/login.html';
     } else {
       console.log('THREE 객체:', window.THREE);
       if (window.THREE) {
         // main.js를 직접 포함
         const script = document.createElement('script');
-        script.src = '../src/main-legacy.js';
+        script.src = 'src/main-legacy.js';
         script.onload = () => console.log('main-legacy.js 로딩 완료');
         script.onerror = (e) => {
           console.error('main-legacy.js 로딩 실패:', e);

@@ -11,13 +11,13 @@ const path = require('path');
 const app = express();
 const PORT = 3000;
 
-// public, src 폴더 정적 서빙
-app.use('/public', express.static(path.join(__dirname, 'public')));
+// 정적 파일 서빙 - 루트에서 HTML 파일들과 src 폴더
+app.use(express.static(__dirname));
 app.use('/src', express.static(path.join(__dirname, 'src')));
 
 // 루트로 접속 시 index.html 제공
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, () => {

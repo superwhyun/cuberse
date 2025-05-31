@@ -23,7 +23,7 @@ function getCurrentUser() {
 }
 function logout() {
   localStorage.removeItem('cuberse_current_user');
-  window.location.href = '/public/login.html';
+  window.location.href = '/login.html';
 }
 
 // 로그인/회원가입 이벤트 바인딩
@@ -35,7 +35,7 @@ if (document.getElementById('login-form')) {
     const users = getUsers();
     if (users[username] && users[username].password === hash(password)) {
       setCurrentUser(username);
-      window.location.href = '/public/spaces.html';
+      window.location.href = '/spaces.html';
     } else {
       document.getElementById('login-message').innerText = '로그인 실패: 아이디/비밀번호 확인';
     }
@@ -54,7 +54,7 @@ if (document.getElementById('signup-form')) {
     users[username] = { password: hash(password) };
     setUsers(users);
     setCurrentUser(username);
-    window.location.href = '/public/spaces.html';
+    window.location.href = '/spaces.html';
   };
 }
 

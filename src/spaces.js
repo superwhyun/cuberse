@@ -34,7 +34,7 @@ function createSpace(userId) {
 function renderSpaces() {
   const userId = getCurrentUser();
   if (!userId) {
-    window.location.href = '/public/login.html';
+    window.location.href = '/login.html';
     return;
   }
   document.getElementById('user-info').innerText = `로그인: ${userId}`;
