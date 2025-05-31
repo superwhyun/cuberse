@@ -1,0 +1,23 @@
+# Vercel deployment
+.vercel
+
+# Local development
+node_modules/
+npm-debug.log*
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log

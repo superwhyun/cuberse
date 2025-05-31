@@ -1,12 +1,21 @@
 {
   "name": "cuberse",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "마인크래프트 스타일 큐브 쌓기 웹앱",
   "main": "server.js",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "start": "node server.js",
+    "vercel-build": "echo 'Build for Vercel complete'",
+    "deploy": "vercel --prod"
   },
   "dependencies": {
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "vercel": "^28.16.0"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
 }
