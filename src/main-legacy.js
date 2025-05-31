@@ -138,7 +138,7 @@ function initApp() {
     allSceneData.currentZone = { x: currentZoneX, y: currentZoneY };
     
     saveSpace(spaceId, allSceneData);
-    showToast('자동 저장됨');
+    // 자동저장 토스트 메시지 제거
   }
 
   // Mouse drag variables
@@ -147,6 +147,9 @@ function initApp() {
   let initialMousePosition = { x: 0, y: 0 };
   const dragThreshold = 5; // pixels
   let wasDraggingJustNow = false; // Flag to differentiate click from drag
+  let isDraggingCube = false; // 큐브 드래그 모드 플래그
+  let dragStartCube = null; // 드래그 시작 큐브
+  let dragStartFace = null; // 드래그 시작 면
 
   // 씬, 카메라, 렌더러 생성
   const scene = new THREE.Scene();
@@ -405,12 +408,26 @@ function initApp() {
     previousMousePosition.x = event.clientX;
     previousMousePosition.y = event.clientY;
     wasDraggingJustNow = false;
+    
+    // 큐브가 하이라이트된 상태면 큐브 드래그 모드로 설정
+    if (hoveredCube && hoveredFaceNormal) {
+      isDraggingCube = true;
+      dragStartCube = hoveredCube;
+      dragStartFace = hoveredFaceNormal.clone();
+    } else {
+      isDraggingCube = false;
+      dragStartCube = null;
+      dragStartFace = null;
+    }
   });
 
   // 마우스가 3D 영역을 벗어나면 드래깅 중단
   renderer.domElement.addEventListener('mouseleave', () => {
     if (isDragging) {
       isDragging = false;
+      isDraggingCube = false;
+      dragStartCube = null;
+      dragStartFace = null;
       console.log('마우스가 3D 영역을 벗어나서 드래깅 중단');
     }
   });
@@ -431,45 +448,73 @@ function initApp() {
         previousMousePosition.x = event.clientX;
         previousMousePosition.y = event.clientY;
 
-        // 카메라를 제자리에서 회전 (FPS 스타일)
-        const rotationSpeed = 0.006; // 속도 증가 (0.002 → 0.006)
-
-        // 수평 회전 (Y축 기준 - 좌우 돌기)
-        if (Math.abs(deltaX) > 0.1) {
-            const yawAngle = -deltaX * rotationSpeed;
+        if (isDraggingCube && dragStartCube && dragStartFace) {
+          // 큐브 드래그 모드: 직선 경로에 큐브 생성
+          const dragDistance = Math.sqrt(
+            Math.pow(event.clientX - initialMousePosition.x, 2) + 
+            Math.pow(event.clientY - initialMousePosition.y, 2)
+          );
+          
+          if (dragDistance > dragThreshold) {
+            // 드래그 방향에 따른 큐브 생성 개수 계산 (거리에 비례)
+            const cubeCount = Math.floor(dragDistance / 20); // 20px마다 1개 큐브
             
-            // 카메라의 현재 회전을 Y축 기준으로 추가 회전
-            const yawQuaternion = new THREE.Quaternion();
-            yawQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle);
-            
-            camera.quaternion.multiplyQuaternions(yawQuaternion, camera.quaternion);
-        }
-
-        // 수직 회전 (X축 기준 - 위아래 보기)
-        if (Math.abs(deltaY) > 0.1) {
-            const pitchAngle = -deltaY * rotationSpeed;
-            
-            // 현재 카메라의 로컬 X축을 구해서 pitch 회전
-            const cameraRight = new THREE.Vector3(1, 0, 0);
-            cameraRight.applyQuaternion(camera.quaternion);
-            
-            // 수직 회전 제한 확인
-            const currentDirection = new THREE.Vector3(0, 0, -1);
-            currentDirection.applyQuaternion(camera.quaternion);
-            const currentPitch = Math.asin(currentDirection.y);
-            const newPitch = currentPitch + pitchAngle;
-            const maxPitch = Math.PI / 2 * 0.85; // 85도 제한
-            
-            if (Math.abs(newPitch) < maxPitch) {
-                const pitchQuaternion = new THREE.Quaternion();
-                pitchQuaternion.setFromAxisAngle(cameraRight, pitchAngle);
+            if (cubeCount > 0) {
+              // 시작 큐브 위치 계산
+              const localX = dragStartCube.position.x - (currentZoneX * ZONE_SIZE);
+              const localZ = dragStartCube.position.z - (currentZoneY * ZONE_SIZE);
+              
+              const startGridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+              const startGridY = Math.round((dragStartCube.position.y / cubeSize) - 0.5);
+              const startGridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+              
+              // 면 방향으로 직선 경로에 큐브들 생성
+              for (let i = 1; i <= cubeCount; i++) {
+                const nextX = startGridX + Math.round(dragStartFace.x) * i;
+                const nextY = startGridY + Math.round(dragStartFace.y) * i;
+                const nextZ = startGridZ + Math.round(dragStartFace.z) * i;
                 
-                camera.quaternion.multiplyQuaternions(pitchQuaternion, camera.quaternion);
+                if (
+                  nextX >= 0 && nextX < ZONE_DIVISIONS &&
+                  nextY >= 0 &&
+                  nextZ >= 0 && nextZ < ZONE_DIVISIONS
+                ) {
+                  addCube(nextX, nextY, nextZ, cubeColor);
+                }
+              }
+              
+              wasDraggingJustNow = true;
             }
+          }
+        } else {
+          // 일반 카메라 드래그 모드: 기존 카메라 회전 로직
+          if (Math.abs(deltaX) > 0.1) {
+              const yawAngle = -deltaX * 0.006;
+              const yawQuaternion = new THREE.Quaternion();
+              yawQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle);
+              camera.quaternion.multiplyQuaternions(yawQuaternion, camera.quaternion);
+          }
+
+          if (Math.abs(deltaY) > 0.1) {
+              const pitchAngle = -deltaY * 0.006;
+              const cameraRight = new THREE.Vector3(1, 0, 0);
+              cameraRight.applyQuaternion(camera.quaternion);
+              
+              const currentDirection = new THREE.Vector3(0, 0, -1);
+              currentDirection.applyQuaternion(camera.quaternion);
+              const currentPitch = Math.asin(currentDirection.y);
+              const newPitch = currentPitch + pitchAngle;
+              const maxPitch = Math.PI / 2 * 0.85;
+              
+              if (Math.abs(newPitch) < maxPitch) {
+                  const pitchQuaternion = new THREE.Quaternion();
+                  pitchQuaternion.setFromAxisAngle(cameraRight, pitchAngle);
+                  camera.quaternion.multiplyQuaternions(pitchQuaternion, camera.quaternion);
+              }
+          }
+          
+          camera.quaternion.normalize();
         }
-        
-        // 쿼터니언 정규화 (중요!)
-        camera.quaternion.normalize();
     } else {
         // 현재 Zone의 큐브들만 하이라이트
         const raycaster = new THREE.Raycaster();
@@ -508,6 +553,9 @@ function initApp() {
             wasDraggingJustNow = true;
         }
         isDragging = false;
+        isDraggingCube = false;
+        dragStartCube = null;
+        dragStartFace = null;
     }
   });
 
@@ -816,10 +864,18 @@ function initApp() {
         });
       }
       
-      // 복원된 Zone으로 카메라 이동
+      // 복원된 Zone으로 이동 및 바닥 면 업데이트
       if (currentZoneX !== 0 || currentZoneY !== 0) {
-        switchToZone(currentZoneX, currentZoneY);
+        // 카메라를 복원된 Zone 위치로 이동
+        const targetX = currentZoneX * ZONE_SIZE;
+        const targetZ = currentZoneY * ZONE_SIZE;
+        camera.position.x = targetX;
+        camera.position.z = targetZ + 20;
+        camera.lookAt(targetX, 0, targetZ);
       }
+      
+      // 바닥 면 업데이트 (복원된 Zone이 활성화되도록)
+      updateZoneFloors();
       
     } else if (Array.isArray(loadedSceneData)) {
       // 기존 배열 형식 데이터 (호환성)
@@ -840,6 +896,8 @@ function initApp() {
 
   // 오른쪽 클릭으로 큐브 삭제
   renderer.domElement.addEventListener('contextmenu', (event) => {
+    console.log('우클릭 contextmenu 이벤트 발생'); // 디버깅
+    
     const rect = renderer.domElement.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -851,6 +909,8 @@ function initApp() {
     // 현재 Zone의 큐브들만 삭제 가능
     const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
     const intersects = raycaster.intersectObjects(currentZoneCubes);
+    
+    console.log('우클릭 시 큐브 감지:', intersects.length); // 디버깅
     
     if (intersects.length > 0) {
       event.preventDefault();
@@ -865,7 +925,9 @@ function initApp() {
           highlightEdge = null;
       }
       autoSaveCurrentSpace();
-      console.log(`큐브 삭제됨. Zone (${currentZoneX},${currentZoneY})에 ${currentZoneCubes.length}개 큐브 남음`); // 디버깅
+      console.log(`큐브 삭제됨. Zone (${currentZoneX},${currentZoneY})에 ${getZoneCubes(currentZoneX, currentZoneY).length}개 큐브 남음`);
+    } else {
+      event.preventDefault(); // 컨텍스트 메뉴 표시 방지
     }
   });
 
