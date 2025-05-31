@@ -1,6 +1,8 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+  let hoveredCube = null;
+  let hoveredFaceNormal = null;
   let highlightEdge = null;
   const container = document.getElementById('container');
   const colorInput = document.getElementById('cubeColor');
@@ -56,49 +58,75 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 마우스 클릭으로 큐브 추가 (큐브 위 또는 바닥)
-  renderer.domElement.addEventListener('click', (event) => {
-    if (wasDraggingJustNow) {
-      wasDraggingJustNow = false; // Reset flag and consume the click
-      return;
+renderer.domElement.addEventListener('click', (event) => {
+  if (wasDraggingJustNow) {
+    wasDraggingJustNow = false;
+    return;
+  }
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera);
+
+  // hover된 큐브와 면이 있으면 그 정보를 사용
+  if (hoveredCube && hoveredFaceNormal) {
+    const gridX = Math.round((hoveredCube.position.x / cubeSize) + gridDivisions / 2 - 0.5);
+    const gridY = Math.round((hoveredCube.position.y / cubeSize) - 0.5);
+    const gridZ = Math.round((hoveredCube.position.z / cubeSize) + gridDivisions / 2 - 0.5);
+    const nextX = gridX + Math.round(hoveredFaceNormal.x);
+    const nextY = gridY + Math.round(hoveredFaceNormal.y);
+    const nextZ = gridZ + Math.round(hoveredFaceNormal.z);
+    if (
+      nextX >= 0 && nextX < gridDivisions &&
+      nextY >= 0 &&
+      nextZ >= 0 && nextZ < gridDivisions
+    ) {
+      addCube(nextX, nextY, nextZ, cubeColor);
     }
+    return;
+  }
 
-    const rect = renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
+  // (hover된 큐브가 없으면 바닥 클릭 기존 코드)
+  const cubeIntersects = raycaster.intersectObjects(cubes);
+  if (cubeIntersects.length > 0) {
+    // fallback: 기존 동작 유지
+    const target = cubeIntersects[0].object;
+    const faceNormal = cubeIntersects[0].face.normal;
+    const gridX = Math.round((target.position.x / cubeSize) + gridDivisions / 2 - 0.5);
+    const gridY = Math.round((target.position.y / cubeSize) - 0.5);
+    const gridZ = Math.round((target.position.z / cubeSize) + gridDivisions / 2 - 0.5);
+    const nextX = gridX + Math.round(faceNormal.x);
+    const nextY = gridY + Math.round(faceNormal.y);
+    const nextZ = gridZ + Math.round(faceNormal.z);
+    if (
+      nextX >= 0 && nextX < gridDivisions &&
+      nextY >= 0 &&
+      nextZ >= 0 && nextZ < gridDivisions
+    ) {
+      addCube(nextX, nextY, nextZ, cubeColor);
+    }
+    return;
+  }
 
-    const cubeIntersects = raycaster.intersectObjects(cubes);
-    if (cubeIntersects.length > 0) {
-      // 큐브 위라면, 그 큐브 위에 쌓기
-      const target = cubeIntersects[0].object;
-      const x = Math.round((target.position.x / cubeSize) + gridDivisions / 2 - 0.5);
-      const z = Math.round((target.position.z / cubeSize) + gridDivisions / 2 - 0.5);
+  // 바닥 클릭 - 기존 코드
+  const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
+  if (intersect) {
+    let x = Math.floor(intersect.x / cubeSize + gridDivisions / 2);
+    let z = Math.floor(intersect.z / cubeSize + gridDivisions / 2);
+    if (x >= 0 && x < gridDivisions && z >= 0 && z < gridDivisions) {
       let y = cubes.filter(cube =>
-        Math.abs(cube.position.x - target.position.x) < 0.01 &&
-        Math.abs(cube.position.z - target.position.z) < 0.01
+        Math.abs(cube.position.x - ((x - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01 &&
+        Math.abs(cube.position.z - ((z - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01
       ).length;
       addCube(x, y, z, cubeColor);
-      return;
     }
-
-    // 바닥 클릭 - 기존 코드
-    const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
-    if (intersect) {
-      let x = Math.floor(intersect.x / cubeSize + gridDivisions / 2);
-      let z = Math.floor(intersect.z / cubeSize + gridDivisions / 2);
-      if (x >= 0 && x < gridDivisions && z >= 0 && z < gridDivisions) {
-        let y = cubes.filter(cube =>
-          Math.abs(cube.position.x - ((x - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01 &&
-          Math.abs(cube.position.z - ((z - gridDivisions / 2 + 0.5) * cubeSize)) < 0.01
-        ).length;
-        addCube(x, y, z, cubeColor);
-      }
-    }
-  });
+  }
+});
 
   // Mouse listeners for drag, highlight
   renderer.domElement.addEventListener('mousedown', (event) => {
@@ -114,6 +142,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   renderer.domElement.addEventListener('mousemove', (event) => {
+    hoveredCube = null;
+    hoveredFaceNormal = null;
     const rect = renderer.domElement.getBoundingClientRect();
     const currentMouse = new THREE.Vector2(
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -191,6 +221,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (cubeIntersects.length > 0) {
             const target = cubeIntersects[0].object;
+            const faceNormal = cubeIntersects[0].face.normal;
+            hoveredCube = target;
+            hoveredFaceNormal = faceNormal.clone();
             const edgeGeom = new THREE.EdgesGeometry(target.geometry);
             const edgeMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 }); // Thinner line
             highlightEdge = new THREE.LineSegments(edgeGeom, edgeMat);
