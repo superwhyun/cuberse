@@ -499,6 +499,60 @@ function initApp() {
     });
   }
 
+  // Drag and drop load functionality
+  renderer.domElement.addEventListener('dragover', (event) => {
+    event.preventDefault(); // Allow dropping
+  });
+
+  renderer.domElement.addEventListener('drop', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const file = event.dataTransfer.files[0];
+    if (file && file.type === 'application/json') {
+      showLoading('파일 로딩 중...');
+      
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        try {
+          const loadedSceneData = JSON.parse(e.target.result);
+
+          // Clear existing cubes
+          cubes.forEach(cube => scene.remove(cube));
+          cubes.length = 0; // Clear the array
+
+          // Load new cubes
+          loadedSceneData.forEach(cubeData => {
+            // Convert absolute positions from JSON back to grid coordinates for addCube
+            const gridX = (cubeData.x / cubeSize) - 0.5 + gridDivisions / 2;
+            const gridY = (cubeData.y / cubeSize) - 0.5;
+            const gridZ = (cubeData.z / cubeSize) - 0.5 + gridDivisions / 2;
+
+            addCube(gridX, gridY, gridZ, cubeData.color);
+          });
+          autoSaveCurrentSpace();
+          hideLoading();
+          showToast('파일이 성공적으로 로드되었습니다');
+        } catch (error) {
+          console.error('Error parsing JSON file:', error);
+          hideLoading();
+          showToast('유효하지 않은 JSON 파일입니다', true);
+        }
+      };
+
+      reader.onerror = (error) => {
+        console.error('Error reading file:', error);
+        hideLoading();
+        showToast('파일 읽기에 실패했습니다', true);
+      };
+
+      reader.readAsText(file);
+    } else if (file) {
+      showToast('JSON 파일만 업로드 가능합니다', true);
+    }
+  });
+
   // 렌더 루프
   function animate() {
     requestAnimationFrame(animate);
