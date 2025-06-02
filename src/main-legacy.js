@@ -104,7 +104,12 @@ function initApp() {
   
   function removeCubeFromZone(zoneX, zoneY, cube) {
     const zoneCubes = getZoneCubes(zoneX, zoneY);
-    const index = zoneCubes.indexOf(cube);
+    // position(x, y, z)이 정확히 일치하는 큐브를 찾아 삭제
+    const index = zoneCubes.findIndex(c =>
+      Math.abs(c.position.x - cube.position.x) < 0.01 &&
+      Math.abs(c.position.y - cube.position.y) < 0.01 &&
+      Math.abs(c.position.z - cube.position.z) < 0.01
+    );
     if (index > -1) {
       zoneCubes.splice(index, 1);
       updateFpsObstacles();
@@ -174,6 +179,67 @@ function initApp() {
   // Jump In 버튼 생성 (FPS 모드 진입)
   // FPSControls 인스턴스 생성 및 장애물 연결
 fpsControls = new FPSControls(camera, renderer.domElement);
+// FPS 모드 해제 시(편집모드 복귀) 카메라를 위로 올리고 아래를 비스듬히 바라보게 리셋
+fpsControls.onExit = () => {
+  // 편집모드 복귀 시 현재 위치 기준으로 카메라를 부드럽게 위로 슬라이딩
+  const currentPos = {
+    x: camera.position.x,
+    y: camera.position.y,
+    z: camera.position.z
+  };
+  
+  // FPS에서 보던 방향을 계산
+  const currentDirection = new THREE.Vector3();
+  camera.getWorldDirection(currentDirection);
+  
+  // 수평 방향만 유지 (Y축 제거)
+  currentDirection.y = 0;
+  currentDirection.normalize();
+  
+  const targetPos = {
+    x: currentPos.x, 
+    y: currentPos.y + 12, // 현재 위치에서 12 유닛 위로
+    z: currentPos.z + 3  // 뒤로 약간 빼기
+  };
+  
+  // FPS에서 보던 방향을 유지하면서 70도 하방으로 바라보기
+  const lookDistance = 15; // 바라볼 거리
+  const targetLook = {
+    x: currentPos.x + currentDirection.x * lookDistance,
+    y: currentPos.y - 10, // 70도 하방
+    z: currentPos.z + currentDirection.z * lookDistance
+  };
+  
+  const startPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
+  const startLook = { x: 0, y: 0, z: 0 };
+  const lookVec = new THREE.Vector3();
+  camera.getWorldDirection(lookVec);
+  const camLookAt = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z).add(lookVec);
+  startLook.x = camLookAt.x;
+  startLook.y = camLookAt.y;
+  startLook.z = camLookAt.z;
+
+  const duration = 700; // ms
+  const startTime = performance.now();
+
+  function animateTransition(now) {
+    const t = Math.min((now - startTime) / duration, 1);
+    // easeInOutQuad
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    camera.position.x = startPos.x + (targetPos.x - startPos.x) * ease;
+    camera.position.y = startPos.y + (targetPos.y - startPos.y) * ease;
+    camera.position.z = startPos.z + (targetPos.z - startPos.z) * ease;
+    camera.lookAt(
+      startLook.x + (targetLook.x - startLook.x) * ease,
+      startLook.y + (targetLook.y - startLook.y) * ease,
+      startLook.z + (targetLook.z - startLook.z) * ease
+    );
+    if (t < 1) {
+      requestAnimationFrame(animateTransition);
+    }
+  }
+  requestAnimationFrame(animateTransition);
+};
 
 // Jump In 버튼 생성 시 FPSControls 인스턴스 전달
 createJumpInButton(camera, renderer.domElement, fpsControls);
@@ -326,6 +392,8 @@ updateFpsObstacles();
       Math.abs(cube.position.x - ((x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize)) < 0.01 &&
       Math.abs(cube.position.y - ((y + 0.5) * cubeSize)) < 0.01 &&
       Math.abs(cube.position.z - ((z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize)) < 0.01
+    ) || getZoneCubes(currentZoneX, currentZoneY).some(cube =>
+      cube.gridX === x && cube.gridY === y && cube.gridZ === z
     )) {
       return;
     }
@@ -345,6 +413,10 @@ updateFpsObstacles();
     );
     
     scene.add(cube);
+    // grid 좌표를 cube 객체에 저장
+    cube.gridX = x;
+    cube.gridY = y;
+    cube.gridZ = z;
     addCubeToZone(currentZoneX, currentZoneY, cube);
     console.log(`큐브 생성됨. Zone (${currentZoneX},${currentZoneY})에 ${getZoneCubes(currentZoneX, currentZoneY).length}개 큐브`); // 디버깅
     autoSaveCurrentSpace(); // addCube마다 자동 저장
@@ -418,6 +490,9 @@ updateFpsObstacles();
 
   // Mouse listeners for drag, highlight
   renderer.domElement.addEventListener('mousedown', (event) => {
+    // FPS 모드일 때는 편집 기능 건너뜀
+    if (fpsControls && fpsControls.enabled) return;
+    
     if (event.button === 2) { // Right mouse button for context menu
         return;
     }
@@ -452,6 +527,9 @@ updateFpsObstacles();
   });
 
   renderer.domElement.addEventListener('mousemove', (event) => {
+    // FPS 모드일 때는 편집 기능 건너뜀
+    if (fpsControls && fpsControls.enabled) return;
+    
     hoveredCube = null;
     hoveredFaceNormal = null;
     const rect = renderer.domElement.getBoundingClientRect();
@@ -506,8 +584,9 @@ updateFpsObstacles();
             }
           }
         } else {
-          // 일반 카메라 드래그 모드: 기존 카메라 회전 로직
+          // 일반 카메라 드래그 모드: 회전
           if (Math.abs(deltaX) > 0.1) {
+              // 좌우 드래그: 카메라 좌우 회전
               const yawAngle = -deltaX * 0.006;
               const yawQuaternion = new THREE.Quaternion();
               yawQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle);
@@ -515,6 +594,7 @@ updateFpsObstacles();
           }
 
           if (Math.abs(deltaY) > 0.1) {
+              // 상하 드래그: 카메라 상하 회전 (위아래 보기)
               const pitchAngle = -deltaY * 0.006;
               const cameraRight = new THREE.Vector3(1, 0, 0);
               cameraRight.applyQuaternion(camera.quaternion);
@@ -560,6 +640,9 @@ updateFpsObstacles();
   });
 
   renderer.domElement.addEventListener('mouseup', (event) => {
+    // FPS 모드일 때는 편집 기능 건너뜀
+    if (fpsControls && fpsControls.enabled) return;
+    
     if (event.button === 2) { // Right mouse button
         return;
     }
@@ -623,6 +706,9 @@ updateFpsObstacles();
   window.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
     
+    // FPS 모드일 때는 기존 키보드 처리를 건너뜀
+    if (fpsControls && fpsControls.enabled) return;
+    
     const key = e.key.toLowerCase();
     
     // Zone 전환 (화살표 키는 즉시 처리)
@@ -678,6 +764,9 @@ updateFpsObstacles();
 
   window.addEventListener('keyup', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    
+    // FPS 모드일 때는 기존 키보드 처리를 건너뜀
+    if (fpsControls && fpsControls.enabled) return;
     
     const key = e.key.toLowerCase();
     if (keyStates.hasOwnProperty(key)) {
@@ -910,6 +999,12 @@ updateFpsObstacles();
 
   // 오른쪽 클릭으로 큐브 삭제
   renderer.domElement.addEventListener('contextmenu', (event) => {
+    // FPS 모드일 때는 우클릭 삭제 건너뜀
+    if (fpsControls && fpsControls.enabled) {
+      event.preventDefault();
+      return;
+    }
+    
     console.log('우클릭 contextmenu 이벤트 발생'); // 디버깅
     
     const rect = renderer.domElement.getBoundingClientRect();
@@ -922,26 +1017,67 @@ updateFpsObstacles();
 
     // 현재 Zone의 큐브들만 삭제 가능
     const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const intersects = raycaster.intersectObjects(currentZoneCubes);
+    console.log('현재 Zone 큐브 개수:', currentZoneCubes.length);
+    console.log('현재 Zone 큐브들:', currentZoneCubes.map(cube => ({
+      position: cube.position.toArray(),
+      id: cube.id,
+      uuid: cube.uuid
+    })));
     
-    console.log('우클릭 시 큐브 감지:', intersects.length); // 디버깅
+    // 전체 씬의 큐브들도 확인
+    const allCubes = [];
+    scene.traverse((child) => {
+      if (child.isMesh && child.geometry && child.geometry.type === 'BoxGeometry') {
+        allCubes.push(child);
+      }
+    });
+    console.log('씬 전체 큐브 개수:', allCubes.length);
+    
+    // raycasting 결과 확인
+    const intersects = raycaster.intersectObjects(currentZoneCubes);
+    const allIntersects = raycaster.intersectObjects(allCubes);
+    
+    console.log('현재 Zone 큐브와의 교차점:', intersects.length);
+    console.log('전체 큐브와의 교차점:', allIntersects.length);
+    
+    if (allIntersects.length > 0) {
+      const targetCube = allIntersects[0].object;
+      console.log('클릭된 큐브 정보:', {
+        position: targetCube.position.toArray(),
+        uuid: targetCube.uuid,
+        isInCurrentZone: currentZoneCubes.includes(targetCube)
+      });
+    }
     
     if (intersects.length > 0) {
       event.preventDefault();
       const targetCube = intersects[0].object;
       scene.remove(targetCube);
-      
-      // Zone에서 큐브 제거
-      removeCubeFromZone(currentZoneX, currentZoneY, targetCube);
+
+      // 월드 좌표에서 zoneX, zoneY 계산
+      const zoneX = Math.floor(targetCube.position.x / ZONE_SIZE);
+      const zoneY = Math.floor(targetCube.position.z / ZONE_SIZE);
+
+      // 해당 zone의 큐브 배열에서 위치가 정확히 일치하는 큐브를 찾아 삭제
+      const zoneCubes = getZoneCubes(zoneX, zoneY);
+      const foundCube = zoneCubes.find(cube =>
+        Math.abs(cube.position.x - targetCube.position.x) < 0.01 &&
+        Math.abs(cube.position.y - targetCube.position.y) < 0.01 &&
+        Math.abs(cube.position.z - targetCube.position.z) < 0.01
+      );
+      if (foundCube) {
+        removeCubeFromZone(zoneX, zoneY, foundCube);
+      }
 
       if (highlightEdge && highlightEdge.position.equals(targetCube.position)) {
           scene.remove(highlightEdge);
           highlightEdge = null;
       }
       autoSaveCurrentSpace();
-      console.log(`큐브 삭제됨. Zone (${currentZoneX},${currentZoneY})에 ${getZoneCubes(currentZoneX, currentZoneY).length}개 큐브 남음`);
+      console.log(`큐브 삭제됨. Zone (${zoneX},${zoneY})에 ${getZoneCubes(zoneX, zoneY).length}개 큐브 남음`);
     } else {
       event.preventDefault(); // 컨텍스트 메뉴 표시 방지
+      console.log('삭제할 큐브를 찾지 못했습니다.');
     }
   });
 
