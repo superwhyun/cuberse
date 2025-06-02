@@ -1,4 +1,7 @@
-console.log('main-legacy.js 로딩됨, THREE:', window.THREE);
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+import { createJumpInButton } from './jumpInButton.js';
+import { FPSControls } from './fpsControls.js';
+console.log('main-legacy.js 로딩됨, THREE:', THREE);
 
 // 유틸리티 함수들
 function showLoading(text = '로딩 중...') {
@@ -33,13 +36,12 @@ function showToast(message, isError = false) {
 }
 
 function initApp() {
+  // FPSControls 인스턴스 참조 전역 변수 선언
+  let fpsControls = null;
   console.log('initApp 함수 시작');
-  const THREE = window.THREE;
+
   
-  if (!THREE) {
-    console.error('THREE.js가 로드되지 않았습니다');
-    return;
-  }
+
   
   try {
   // ---- Multi-Space/Workspace Support ----
@@ -97,6 +99,7 @@ function initApp() {
   function addCubeToZone(zoneX, zoneY, cube) {
     const zoneCubes = getZoneCubes(zoneX, zoneY);
     zoneCubes.push(cube);
+    updateFpsObstacles();
   }
   
   function removeCubeFromZone(zoneX, zoneY, cube) {
@@ -104,6 +107,7 @@ function initApp() {
     const index = zoneCubes.indexOf(cube);
     if (index > -1) {
       zoneCubes.splice(index, 1);
+      updateFpsObstacles();
     }
   }
   // ---- End Zone System ----
@@ -166,6 +170,21 @@ function initApp() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   container.appendChild(renderer.domElement);
   console.log('렌더러 생성 및 추가:', renderer);
+
+  // Jump In 버튼 생성 (FPS 모드 진입)
+  // FPSControls 인스턴스 생성 및 장애물 연결
+fpsControls = new FPSControls(camera, renderer.domElement);
+
+// Jump In 버튼 생성 시 FPSControls 인스턴스 전달
+createJumpInButton(camera, renderer.domElement, fpsControls);
+
+// FPSControls에 현재 Zone 큐브 전달
+function updateFpsObstacles() {
+  if (fpsControls) {
+    fpsControls.setObstacles(Object.values(zoneData).flat());
+  }
+}
+updateFpsObstacles();
 
   // Zone별 그리드 관리 시스템
   const zoneGrids = new Map();
@@ -743,6 +762,7 @@ function initApp() {
 
   // Zone 전환 함수 (부드러운 슬라이딩 애니메이션)
   function switchToZone(newZoneX, newZoneY) {
+  // Zone 이동 후 장애물 큐브 갱신
     if (newZoneX === currentZoneX && newZoneY === currentZoneY) return;
     
     console.log(`Zone 전환: (${currentZoneX},${currentZoneY}) → (${newZoneX},${newZoneY})`);
@@ -764,24 +784,18 @@ function initApp() {
     
     // 부드러운 슬라이딩 애니메이션
     function animateZoneTransition(currentTime) {
-      const elapsed = currentTime - startTime;
-      animationProgress = Math.min(elapsed / animationDuration, 1);
-      
-      // easeInOutQuad 이징 함수로 부드러운 움직임
-      const easeProgress = animationProgress < 0.5 
-        ? 2 * animationProgress * animationProgress
-        : 1 - Math.pow(-2 * animationProgress + 2, 2) / 2;
-      
-      // 카메라 위치 보간
-      camera.position.x = startX + (targetX - startX) * easeProgress;
-      camera.position.z = startZ + (targetZ - startZ) * easeProgress;
-      
+      animationProgress = Math.min((currentTime - startTime) / animationDuration, 1);
+
       if (animationProgress < 1) {
+        // 카메라 위치 보간
+        camera.position.x = startX + (targetX - startX) * animationProgress;
+        camera.position.z = startZ + (targetZ - startZ) * animationProgress;
         requestAnimationFrame(animateZoneTransition);
       } else {
         // 애니메이션 완료 시 Zone 정보 업데이트
         currentZoneX = newZoneX;
         currentZoneY = newZoneY;
+        updateFpsObstacles();
         
         // 새 Zone 그리드 생성 (없다면) - 비활성으로 생성
         const zoneKey = getCurrentZoneKey();
@@ -1088,8 +1102,13 @@ function initApp() {
   function animate() {
     requestAnimationFrame(animate);
     
-    // 키보드 입력에 따른 부드러운 이동 처리
-    handleKeyboardMovement();
+    // FPSControls가 활성화된 경우 FPS 이동 처리
+    if (fpsControls && fpsControls.enabled) {
+      fpsControls.update();
+    } else {
+      // 기존 키보드 이동 처리
+      handleKeyboardMovement();
+    }
     
     renderer.render(scene, camera);
   }

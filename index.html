@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>큐브 쌓기 웹앱</title>
   <link rel="stylesheet" href="src/styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+
 </head>
 <body>
   <div class="loading-overlay" id="initial-loading">
@@ -68,29 +68,21 @@
       window.location.href = '/login.html';
     } else {
       console.log('THREE 객체:', window.THREE);
-      if (window.THREE) {
-        // main.js를 직접 포함
-        const script = document.createElement('script');
-        script.src = 'src/main-legacy.js';
-        script.onload = () => console.log('main-legacy.js 로딩 완료');
-        script.onerror = (e) => {
-          console.error('main-legacy.js 로딩 실패:', e);
-          document.getElementById('initial-loading').innerHTML = `
-            <div style="color: red; text-align: center;">
-              <div>스크립트 로딩에 실패했습니다</div>
-              <div style="font-size: 0.9em; margin-top: 10px;">페이지를 새로고침해주세요</div>
-            </div>
-          `;
-        };
-        document.head.appendChild(script);
-      } else {
+      // main-legacy.js를 ES Module로 직접 로드
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.src = 'src/main-legacy.js';
+      script.onload = () => console.log('main-legacy.js 로딩 완료');
+      script.onerror = (e) => {
+        console.error('main-legacy.js 로딩 실패:', e);
         document.getElementById('initial-loading').innerHTML = `
           <div style="color: red; text-align: center;">
-            <div>Three.js 로딩에 실패했습니다</div>
+            <div>스크립트 로딩에 실패했습니다</div>
             <div style="font-size: 0.9em; margin-top: 10px;">페이지를 새로고침해주세요</div>
           </div>
         `;
-      }
+      };
+      document.head.appendChild(script);
     }
   </script>
 </body>
