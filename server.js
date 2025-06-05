@@ -35,12 +35,56 @@ io.on('connection', (socket) => {
   if (!global.userIdSet) global.userIdSet = new Set();
   if (!global.socketIdToUserId) global.socketIdToUserId = new Map();
 
-  // 로그인 이벤트 수신
-  socket.on('login', ({ userId }) => {
+  // 각 소켓별 사용자 정보 저장용
+  if (!global.socketUserInfo) global.socketUserInfo = new Map();
+
+  socket.on('login', ({ userId, userSpaces, spaceId }) => {
     if (!userId) return;
     global.userIdSet.add(userId);
     global.socketIdToUserId.set(socket.id, userId);
-    io.emit('user list', Array.from(global.userIdSet));
+    // 소켓별 사용자 정보 저장
+    global.socketUserInfo.set(socket.id, { userId, userSpaces, spaceId });
+
+    // 현재 방의 spaceId를 소유한 userId가 owner
+    let ownerId = null;
+    let ownerSocketId = null;
+    for (const [sid, info] of global.socketUserInfo.entries()) {
+      if (info && info.spaceId === spaceId && Array.isArray(info.userSpaces) && info.userSpaces.includes(spaceId)) {
+        ownerId = info.userId;
+        ownerSocketId = sid;
+        break;
+      }
+    }
+    const userIdArr = Array.from(global.userIdSet);
+    const userListWithOwnerInfo = userIdArr.map(uid => ({
+      userId: uid,
+      isOwner: uid === ownerId
+    }));
+    io.emit('user list', userListWithOwnerInfo);
+
+    // 소켓별 ownerSocketId도 저장 (방별로 여러 owner가 있을 수 있으나, 여기선 1명만)
+    if (!global.spaceIdToOwnerSocketId) global.spaceIdToOwnerSocketId = new Map();
+    if (spaceId && ownerSocketId) {
+      global.spaceIdToOwnerSocketId.set(spaceId, ownerSocketId);
+    }
+  });
+
+  // --- 신규 참가자: 방 정보 요청 relay ---
+  socket.on('request room info', ({ spaceId }) => {
+    if (!spaceId) return;
+    if (!global.spaceIdToOwnerSocketId) return;
+    const ownerSocketId = global.spaceIdToOwnerSocketId.get(spaceId);
+    if (ownerSocketId) {
+      // 주인에게 요청자 소켓 id와 spaceId 전달
+      io.to(ownerSocketId).emit('request room info', { requesterSocketId: socket.id, spaceId });
+    }
+  });
+
+  // --- 주인: 방 정보 전송 시 요청자에게 relay ---
+  socket.on('send room info', ({ to, spaceId, sceneData }) => {
+    if (to && sceneData) {
+      io.to(to).emit('room info', { sceneData });
+    }
   });
 
   // 예시: 클라이언트로부터 받은 메시지를 전체 브로드캐스트

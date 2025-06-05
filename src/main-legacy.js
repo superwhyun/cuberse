@@ -1,5 +1,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
 
+import { getUserSpaces } from './spaces.js';
+
 // --- 전역 spaceId, currentZoneX, currentZoneY 선언 ---
 let spaceId;
 let currentZoneX;
@@ -155,27 +157,59 @@ function initApp() {
           
           const userId = localStorage.getItem('cuberse_current_user');
           if (userId) {
-            socket.emit('login', { userId });
+            const userSpaces = getUserSpaces(userId);
+            socket.emit('login', { userId, userSpaces, spaceId });
           }
         });
-        
-        socket.on('disconnect', () => {
-          isRealtimeAvailable = false;
-        });
-        
+
+        // --- 신규 참가자: 방 정보 요청 ---
+        let isOwner = false;
+        let myId = localStorage.getItem('cuberse_current_user');
+        let userListCache = [];
         socket.on('user list', (userList) => {
           const ul = document.getElementById('user-list');
-          const myId = localStorage.getItem('cuberse_current_user');
+          myId = localStorage.getItem('cuberse_current_user');
+          userListCache = userList;
           if (ul) {
             ul.innerHTML = '';
-            userList.forEach(userId => {
+            userList.forEach(user => {
               const li = document.createElement('li');
-              li.textContent = userId + (userId === myId ? ' (나)' : '');
+              let label = user.userId;
+              if (user.userId === myId) label += ' (나)';
+              if (user.isOwner) label += ' (주인)';
+              if (user.userId === myId && user.isOwner) isOwner = true;
+              li.textContent = label;
               ul.appendChild(li);
             });
           }
+          // 내가 주인이 아니면 방 정보 요청
+          if (!isOwner) {
+            socket.emit('request room info', { spaceId });
+          }
         });
-        
+
+        // --- 방 정보(씬 데이터) 수신 시 localStorage에 저장 및 동기화 ---
+        socket.on('room info', ({ sceneData }) => {
+          if (sceneData) {
+            saveSpace(spaceId, sceneData);
+            // 씬 동기화 함수 호출 필요 (예: reloadSceneData())
+            showToast('방 정보 동기화 완료');
+            // location.reload(); // 필요시 전체 새로고침
+          }
+        });
+
+        // --- 주인: 방 정보 요청 수신 시 처리 ---
+        socket.on('request room info', ({ requesterSocketId, spaceId: reqSpaceId }) => {
+          // 내가 주인이고, 요청 spaceId가 내 spaceId와 같으면
+          if (isOwner && reqSpaceId === spaceId) {
+            const sceneData = loadSpace(spaceId);
+            if (sceneData) {
+              socket.emit('send room info', { to: requesterSocketId, spaceId, sceneData });
+              showToast('방 정보 요청에 응답함');
+            }
+          }
+        });
+
         // 큐브 추가 이벤트 수신
         socket.on('add cube', (data) => {
           if (data.spaceId === spaceId) {

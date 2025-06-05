@@ -15,7 +15,7 @@ function showToast(message, isError = false) {
   }, 3000);
 }
 
-function getUserSpaces(userId) {
+export function getUserSpaces(userId) {
   return JSON.parse(localStorage.getItem('cuberse_user_spaces_' + userId) || '[]');
 }
 function setUserSpaces(userId, arr) {
@@ -37,43 +37,60 @@ function renderSpaces() {
     window.location.href = '/login.html';
     return;
   }
-  document.getElementById('user-info').innerText = `로그인: ${userId}`;
+  const userInfoElem = document.getElementById('user-info');
+  if (userInfoElem) {
+    userInfoElem.innerText = `로그인: ${userId}`;
+  }
   const spaces = getUserSpaces(userId);
   const ul = document.getElementById('space-list');
-  ul.innerHTML = '';
-  spaces.forEach(spaceId => {
-    const li = document.createElement('li');
-    li.innerHTML = `<a href="/?space=${spaceId}">공간 #${spaceId}</a> <button data-id="${spaceId}" class="delete-btn">삭제</button>`;
-    ul.appendChild(li);
-  });
+  if (ul) {
+    ul.innerHTML = '';
+    spaces.forEach(spaceId => {
+      const li = document.createElement('li');
+      li.innerHTML = `<a href="/?space=${spaceId}">공간 #${spaceId}</a> <button data-id="${spaceId}" class="delete-btn">삭제</button>`;
+      ul.appendChild(li);
+    });
+  }
 }
 
 window.onload = function() {
   renderSpaces();
-  document.getElementById('create-space').onclick = function() {
-    const userId = getCurrentUser();
-    const spaceId = createSpace(userId);
-    renderSpaces();
-    showToast('새 공간이 생성되었습니다');
-    setTimeout(() => {
-      window.location.href = `/?space=${spaceId}`;
-    }, 1000);
-  };
-  document.getElementById('logout-btn').onclick = function() {
-    logout();
-  };
-  document.getElementById('space-list').onclick = function(e) {
-    if (e.target.classList.contains('delete-btn')) {
-      if (confirm('이 공간을 정말 삭제하시겠습니까?')) {
-        const spaceId = e.target.getAttribute('data-id');
-        const userId = getCurrentUser();
-        let arr = getUserSpaces(userId);
-        arr = arr.filter(id => id !== spaceId);
-        setUserSpaces(userId, arr);
-        localStorage.removeItem('cuberse_space_' + spaceId);
-        renderSpaces();
-        showToast('공간이 삭제되었습니다');
+
+  const createSpaceBtn = document.getElementById('create-space');
+  if (createSpaceBtn) {
+    createSpaceBtn.onclick = function() {
+      const userId = getCurrentUser();
+      const spaceId = createSpace(userId);
+      renderSpaces();
+      showToast('새 공간이 생성되었습니다');
+      setTimeout(() => {
+        window.location.href = `/?space=${spaceId}`;
+      }, 1000);
+    };
+  }
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.onclick = function() {
+      logout();
+    };
+  }
+
+  const spaceListElem = document.getElementById('space-list');
+  if (spaceListElem) {
+    spaceListElem.onclick = function(e) {
+      if (e.target.classList.contains('delete-btn')) {
+        if (confirm('이 공간을 정말 삭제하시겠습니까?')) {
+          const spaceId = e.target.getAttribute('data-id');
+          const userId = getCurrentUser();
+          let arr = getUserSpaces(userId);
+          arr = arr.filter(id => id !== spaceId);
+          setUserSpaces(userId, arr);
+          localStorage.removeItem('cuberse_space_' + spaceId);
+          renderSpaces();
+          showToast('공간이 삭제되었습니다');
+        }
       }
-    }
-  };
+    };
+  }
 };
