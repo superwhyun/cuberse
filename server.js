@@ -8,8 +8,10 @@
  */
 const express = require('express');
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 const app = express();
-const PORT = 3000;
+const PORT = 3001;
 
 // 정적 파일 서빙 - 루트에서 HTML 파일들과 src 폴더
 app.use(express.static(__dirname));
@@ -20,6 +22,60 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => {
+const httpServer = http.createServer(app);
+const io = new Server(httpServer);
+
+// --- 접속자 목록 관리 ---
+let userList = [];
+
+io.on('connection', (socket) => {
+  console.log('새 클라이언트 접속:', socket.id);
+
+  // --- userId 기준으로만 접속자 목록 관리 ---
+  if (!global.userIdSet) global.userIdSet = new Set();
+  if (!global.socketIdToUserId) global.socketIdToUserId = new Map();
+
+  // 로그인 이벤트 수신
+  socket.on('login', ({ userId }) => {
+    if (!userId) return;
+    global.userIdSet.add(userId);
+    global.socketIdToUserId.set(socket.id, userId);
+    io.emit('user list', Array.from(global.userIdSet));
+  });
+
+  // 예시: 클라이언트로부터 받은 메시지를 전체 브로드캐스트
+  socket.on('chat message', (msg) => {
+    io.emit('chat message', msg);
+  });
+
+  // --- 큐브 추가 이벤트 브로드캐스트 ---
+  socket.on('add cube', (cubeData) => {
+    console.log('[Socket.IO] 서버에서 add cube 수신:', cubeData);
+    io.emit('add cube', cubeData);
+    console.log('[Socket.IO] 서버에서 add cube 브로드캐스트:', cubeData);
+  });
+
+  // --- 큐브 삭제 이벤트 브로드캐스트 ---
+  socket.on('remove cube', (data) => {
+    console.log('[Socket.IO] 서버에서 remove cube 수신:', data);
+    io.emit('remove cube', data);
+    console.log('[Socket.IO] 서버에서 remove cube 브로드캐스트:', data);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('클라이언트 연결 해제:', socket.id);
+    const userId = global.socketIdToUserId.get(socket.id);
+    global.socketIdToUserId.delete(socket.id);
+
+    // 남아있는 소켓 중에 같은 userId가 없으면 userIdSet에서 제거
+    const stillConnected = Array.from(global.socketIdToUserId.values()).includes(userId);
+    if (!stillConnected && userId) {
+      global.userIdSet.delete(userId);
+    }
+    io.emit('user list', Array.from(global.userIdSet));
+  });
+});
+
+httpServer.listen(PORT, () => {
   console.log(`서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
 });

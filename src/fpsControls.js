@@ -414,25 +414,69 @@ export class FPSControls {
       moveVector.addScaledVector(forward, forwardAmount * this.moveSpeed);
       moveVector.addScaledVector(right, rightAmount * this.moveSpeed);
 
-      // 4. 충돌 검사 및 이동
+      // 4. 충돌 검사 및 스텝업 처리
       const nextPos = this.playerObject.position.clone().add(moveVector);
       nextPos.y = this.playerObject.position.y; // y축은 별도 처리
 
       if (!this._cylinderCollides(nextPos)) {
+        // 충돌 없음 - 정상 이동
         this.playerObject.position.copy(nextPos);
+      } else {
+        // 충돌 발생 - 작은 턱 스텝업 시도 (계단이나 작은 장애물용)
+        const stepUpHeight = 0.3; // 작은 턱 높이만 자동 스텝업 (큐브 높이의 약 1/3)
+        const stepUpPos = nextPos.clone();
+        stepUpPos.y += stepUpHeight;
+        
+        if (!this._cylinderCollides(stepUpPos)) {
+          // 스텝업 위치에서 충돌 없음 - 작은 턱 넘기
+          this.playerObject.position.copy(stepUpPos);
+        }
+        // 스텝업도 실패하면 이동하지 않음 (점프해야 함)
       }
     }
 
     // --- 중력 및 점프 처리: playerObject.position.y 기준 ---
+    
+    // 먼저 현재 위치에서 지면에 있는지 체크
+    let onGround = false;
+    const currentPos = this.playerObject.position.clone();
+    
+    // 1. 기본 지면 체크
+    if (currentPos.y <= this.cylinderHeight) {
+      onGround = true;
+    } else {
+      // 2. 큐브 위에 서있는지 체크 (현재 위치 기준)
+      const playerBottom = currentPos.y - this.cylinderHeight;
+      
+      for (const mesh of this.obstacles) {
+        if (!mesh.geometry || !mesh.position) continue;
+        const box = new THREE.Box3().setFromObject(mesh);
+        
+        // 수평적으로 플레이어 실린더와 겹치는지 확인
+        const dx = Math.max(box.min.x - currentPos.x, 0, currentPos.x - box.max.x);
+        const dz = Math.max(box.min.z - currentPos.z, 0, currentPos.z - box.max.z);
+        const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+        
+        if (horizontalDistance <= this.cylinderRadius) {
+          // 수평적으로 겹침 - 큐브 위에 서있는지 확인
+          const tolerance = 0.1;
+          if (Math.abs(playerBottom - box.max.y) <= tolerance) {
+            onGround = true;
+            break;
+          }
+        }
+      }
+    }
+    
+    // 중력 및 이동 처리
     this.velocityY += this.gravity;
     let nextY = this.playerObject.position.y + this.velocityY;
     const testPos = this.playerObject.position.clone();
     testPos.y = nextY;
 
-    let onGround = false;
-
-    if (nextY <= this.playerHeight) {
-      nextY = this.playerHeight;
+    // 기본 지면 체크 (y = 1.6)
+    if (nextY <= this.cylinderHeight) {
+      nextY = this.cylinderHeight;
       this.velocityY = 0;
       onGround = true;
       this.playerObject.position.y = nextY;
@@ -440,22 +484,36 @@ export class FPSControls {
       if (!this._cylinderCollides(testPos)) {
         this.playerObject.position.y = nextY;
       } else {
-        // 큐브 위에 착지 체크
-        const playerFoot = nextY - this.cylinderHeight;
+        // 큐브 위에 착지 체크 - 더 정확한 계산
+        const playerBottom = nextY - this.cylinderHeight;
         let landedOnCube = false;
+        let highestCubeTop = 0;
+        
         for (const mesh of this.obstacles) {
           if (!mesh.geometry || !mesh.position) continue;
           const box = new THREE.Box3().setFromObject(mesh);
-          const tolerance = 0.05;
-          if (Math.abs(playerFoot - box.max.y) < tolerance) {
-            this.playerObject.position.y = box.max.y + this.cylinderHeight;
-            this.velocityY = 0;
-            onGround = true;
-            landedOnCube = true;
-            break;
+          
+          // 수평적으로 플레이어 실린더와 겹치는지 확인
+          const dx = Math.max(box.min.x - this.playerObject.position.x, 0, this.playerObject.position.x - box.max.x);
+          const dz = Math.max(box.min.z - this.playerObject.position.z, 0, this.playerObject.position.z - box.max.z);
+          const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+          
+          if (horizontalDistance <= this.cylinderRadius) {
+            // 수평적으로 겹침 - 큐브 위에 착지 가능
+            const tolerance = 0.1;
+            if (playerBottom >= box.max.y - tolerance && playerBottom <= box.max.y + tolerance) {
+              highestCubeTop = Math.max(highestCubeTop, box.max.y);
+              landedOnCube = true;
+            }
           }
         }
-        if (!landedOnCube) {
+        
+        if (landedOnCube) {
+          this.playerObject.position.y = highestCubeTop + this.cylinderHeight;
+          this.velocityY = 0;
+          onGround = true;
+        } else {
+          // 충돌했지만 착지는 아님 - 수직 이동 차단
           this.velocityY = 0;
         }
       }

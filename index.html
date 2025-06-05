@@ -11,7 +11,12 @@
     <div class="loading-spinner"></div>
     <div class="loading-text">3D 환경 로딩 중...</div>
   </div>
-  <div id="container"></div>
+  <div id="container" style="position:relative;">
+    <div id="user-list-panel" style="position:absolute;top:10px;right:10px;z-index:10;background:rgba(255,255,255,0.92);border:1px solid #ccc;padding:10px;min-width:180px;">
+      <strong>접속자 목록</strong>
+      <ul id="user-list" style="margin:8px 0 0 0;padding:0;list-style:none;font-size:0.95em;"></ul>
+    </div>
+  </div>
   <div id="color-picker">
     <button id="homeButton" style="margin-bottom: 16px;">🏠 홈으로</button>
     <h3>큐브 색상 선택</h3>
@@ -87,3 +92,4 @@
   </script>
 </body>
 </html>
+<script src="/socket.io/socket.io.js"></script>

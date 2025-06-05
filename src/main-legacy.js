@@ -1,6 +1,17 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+
+// --- 전역 spaceId, currentZoneX, currentZoneY 선언 ---
+let spaceId;
+let currentZoneX;
+let currentZoneY;
 import { createJumpInButton } from './jumpInButton.js';
 import { FPSControls } from './fpsControls.js';
+// --- Socket.IO 클라이언트 연결 ---
+let socket = null;
+let isRealtimeAvailable = false;
+
+// setupSocketIO 함수는 initApp 내부에서 정의될 예정
+// -----------------------------------------
 console.log('main-legacy.js 로딩됨, THREE:', THREE);
 
 // 유틸리티 함수들
@@ -68,12 +79,11 @@ function initApp() {
     const data = localStorage.getItem(getStorageKey(spaceId));
     return data ? JSON.parse(data) : null;
   }
-  const spaceId = getSpaceIdFromUrl();
-  // ---- End Multi-Space/Workspace Support ----
+  spaceId = getSpaceIdFromUrl();
   
   // ---- Zone System ----
-  let currentZoneX = 0;
-  let currentZoneY = 0;
+  currentZoneX = 0;
+  currentZoneY = 0;
   const ZONE_SIZE = 20; // 각 Zone은 20x20
   const ZONE_DIVISIONS = 20;
   
@@ -102,19 +112,132 @@ function initApp() {
     updateFpsObstacles();
   }
   
-  function removeCubeFromZone(zoneX, zoneY, cube) {
+  function removeCubeFromZone(zoneX, zoneY, cube, emitToSocket = true) {
     const zoneCubes = getZoneCubes(zoneX, zoneY);
-    // position(x, y, z)이 정확히 일치하는 큐브를 찾아 삭제
     const index = zoneCubes.findIndex(c =>
       Math.abs(c.position.x - cube.position.x) < 0.01 &&
       Math.abs(c.position.y - cube.position.y) < 0.01 &&
       Math.abs(c.position.z - cube.position.z) < 0.01
     );
+    
     if (index > -1) {
+      // 실시간 동기화: emitToSocket이 true일 때만 전송
+      if (emitToSocket && isRealtimeAvailable && socket) {
+        const data = {
+          x: cube.gridX,
+          y: cube.gridY,
+          z: cube.gridZ,
+          zoneX: zoneX,
+          zoneY: zoneY,
+          spaceId: spaceId
+        };
+        socket.emit('remove cube', data);
+      }
+      
       zoneCubes.splice(index, 1);
       updateFpsObstacles();
+      
+      // 로컬 삭제일 때만 자동저장 (원격 삭제 시에는 자동저장 안 함)
+      if (emitToSocket) {
+        autoSaveCurrentSpace();
+      }
     }
   }
+  
+  // Socket.IO 초기화 (Zone 함수들이 정의된 후)
+  function setupSocketIO() {
+    try {
+      if (window.io) {
+        socket = window.io();
+        
+        socket.on('connect', () => {
+          isRealtimeAvailable = true;
+          
+          const userId = localStorage.getItem('cuberse_current_user');
+          if (userId) {
+            socket.emit('login', { userId });
+          }
+        });
+        
+        socket.on('disconnect', () => {
+          isRealtimeAvailable = false;
+        });
+        
+        socket.on('user list', (userList) => {
+          const ul = document.getElementById('user-list');
+          const myId = localStorage.getItem('cuberse_current_user');
+          if (ul) {
+            ul.innerHTML = '';
+            userList.forEach(userId => {
+              const li = document.createElement('li');
+              li.textContent = userId + (userId === myId ? ' (나)' : '');
+              ul.appendChild(li);
+            });
+          }
+        });
+        
+        // 큐브 추가 이벤트 수신
+        socket.on('add cube', (data) => {
+          if (data.spaceId === spaceId) {
+            // 중복 검사
+            const zoneCubes = getZoneCubes(data.zoneX, data.zoneY);
+            if (zoneCubes.some(cube => cube.gridX === data.x && cube.gridY === data.y && cube.gridZ === data.z)) {
+              return;
+            }
+            
+            // 해당 Zone의 큐브로 직접 생성
+            const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+            const material = new THREE.MeshLambertMaterial({ color: data.color });
+            const cube = new THREE.Mesh(geometry, material);
+            
+            // Zone 좌표계 적용
+            const worldX = (data.zoneX * ZONE_SIZE) + (data.x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+            const worldZ = (data.zoneY * ZONE_SIZE) + (data.z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+            
+            cube.position.set(
+              worldX,
+              (data.y + 0.5) * cubeSize,
+              worldZ
+            );
+            
+            // grid 좌표 설정
+            cube.gridX = data.x;
+            cube.gridY = data.y;
+            cube.gridZ = data.z;
+            cube._byRemote = true;
+            
+            scene.add(cube);
+            addCubeToZone(data.zoneX, data.zoneY, cube);
+            updateFpsObstacles();
+          }
+        });
+        
+        // 큐브 삭제 이벤트 수신
+        socket.on('remove cube', (data) => {
+          if (data.spaceId === spaceId) {
+            const zoneCubes = getZoneCubes(data.zoneX, data.zoneY);
+            const target = zoneCubes.find(cube =>
+              cube.gridX === data.x && cube.gridY === data.y && cube.gridZ === data.z
+            );
+            
+            if (target) {
+              scene.remove(target);
+              removeCubeFromZone(data.zoneX, data.zoneY, target, false);
+            }
+          }
+        });
+        
+      } else {
+        console.warn('[Socket.IO] window.io가 존재하지 않습니다.');
+      }
+    } catch (e) {
+      console.warn('[Socket.IO] 실시간 서버 연결 실패, 서버리스 모드로 동작합니다.');
+      socket = null;
+      isRealtimeAvailable = false;
+    }
+  }
+  
+  setupSocketIO();
   
   // Zone 배열에서 씬에 없는 큐브들 정리
   function cleanupZoneArrays() {
@@ -449,18 +572,15 @@ function initApp() {
   const cubeSize = ZONE_SIZE / ZONE_DIVISIONS;
   console.log('큐브 크기:', cubeSize);
 
-  function addCube(x, y, z, color) {
+  function addCube(x, y, z, color, byRemote = false) {
     // 현재 Zone에서만 편집 가능
     if (x < 0 || x >= ZONE_DIVISIONS || z < 0 || z >= ZONE_DIVISIONS) {
       return;
     }
     
-    // 씬에서 실제 존재하는 큐브들만 사용하여 중복 검사
+    // 중복 검사
     const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const validZoneCubes = currentZoneCubes.filter(cube => scene.children.includes(cube));
-    
-    // 그리드 좌표 기반 중복 검사 (더 정확함)
-    if (validZoneCubes.some(cube => cube.gridX === x && cube.gridY === y && cube.gridZ === z)) {
+    if (currentZoneCubes.some(cube => cube.gridX === x && cube.gridY === y && cube.gridZ === z)) {
       return;
     }
 
@@ -482,10 +602,23 @@ function initApp() {
     cube.gridX = x;
     cube.gridY = y;
     cube.gridZ = z;
+    cube._byRemote = byRemote;
     
     scene.add(cube);
     addCubeToZone(currentZoneX, currentZoneY, cube);
-    autoSaveCurrentSpace(); // addCube마다 자동 저장
+
+    // 실시간 동기화: 원격 추가가 아닌 경우에만 전송
+    if (!byRemote && isRealtimeAvailable && socket) {
+      const data = {
+        x, y, z, color,
+        zoneX: currentZoneX,
+        zoneY: currentZoneY,
+        spaceId
+      };
+      socket.emit('add cube', data);
+    }
+    
+    autoSaveCurrentSpace();
   }
 
   // 마우스 클릭으로 큐브 추가 (큐브 위 또는 바닥)
@@ -840,9 +973,10 @@ function initApp() {
         return;
     }
     
-    // 이동/회전 키 상태 업데이트
-    if (keyStates.hasOwnProperty(key)) {
-      keyStates[key] = true;
+    // 이동/회전 키 상태 업데이트 (영문/한글 모두 지원)
+    const normalizedKey = normalizeKey(key);
+    if (keyStates.hasOwnProperty(normalizedKey)) {
+      keyStates[normalizedKey] = true;
       e.preventDefault(); // 기본 브라우저 동작 방지
     }
   });
@@ -854,11 +988,45 @@ function initApp() {
     if (fpsControls && fpsControls.enabled) return;
     
     const key = e.key.toLowerCase();
-    if (keyStates.hasOwnProperty(key)) {
-      keyStates[key] = false;
+    const normalizedKey = normalizeKey(key);
+    if (keyStates.hasOwnProperty(normalizedKey)) {
+      keyStates[normalizedKey] = false;
       e.preventDefault();
     }
   });
+
+  // 키 정규화 함수 (한글 → 영문 매핑)
+  function normalizeKey(key) {
+    const keyMap = {
+      'ㅂ': 'q',  // q → ㅂ
+      'ㅈ': 'w',  // w → ㅈ
+      'ㄷ': 'e',  // e → ㄷ
+      'ㄱ': 'r',  // r → ㄱ
+      'ㅅ': 't',  // t → ㅅ
+      'ㅛ': 'y',  // y → ㅛ
+      'ㅕ': 'u',  // u → ㅕ
+      'ㅑ': 'i',  // i → ㅑ
+      'ㅐ': 'o',  // o → ㅐ
+      'ㅔ': 'p',  // p → ㅔ
+      'ㅁ': 'a',  // a → ㅁ
+      'ㄴ': 's',  // s → ㄴ
+      'ㅇ': 'd',  // d → ㅇ
+      'ㄹ': 'f',  // f → ㄹ
+      'ㅎ': 'g',  // g → ㅎ
+      'ㅗ': 'h',  // h → ㅗ
+      'ㅓ': 'j',  // j → ㅓ
+      'ㅏ': 'k',  // k → ㅏ
+      'ㅣ': 'l',  // l → ㅣ
+      'ㅋ': 'z',  // z → ㅋ
+      'ㅌ': 'x',  // x → ㅌ
+      'ㅊ': 'c',  // c → ㅊ
+      'ㅍ': 'v',  // v → ㅍ
+      'ㅠ': 'b',  // b → ㅠ
+      'ㅜ': 'n',  // n → ㅜ
+      'ㅡ': 'm'   // m → ㅡ
+    };
+    return keyMap[key] || key;
+  }
 
   // 페이지 포커스 잃을 때 모든 키 상태 리셋 (키가 눌린 채로 고정되는 것 방지)
   window.addEventListener('blur', () => {
@@ -1045,6 +1213,14 @@ function initApp() {
           const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
           const cube = new THREE.Mesh(geometry, material);
           cube.position.set(cubeData.x, cubeData.y, cubeData.z);
+          
+          // gridX, gridY, gridZ 계산해서 설정
+          const localX = cubeData.x - (zoneX * ZONE_SIZE);
+          const localZ = cubeData.z - (zoneY * ZONE_SIZE);
+          cube.gridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+          cube.gridY = Math.round((cubeData.y / cubeSize) - 0.5);
+          cube.gridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+          
           scene.add(cube);
           
           // Zone에 추가
@@ -1080,6 +1256,13 @@ function initApp() {
       });
     }
   }
+  
+  // ---- 초기 카메라 위치 설정 (데이터 로드 후) ----
+  if (!loadedSceneData || (currentZoneX === 0 && currentZoneY === 0)) {
+    // 첫 접속이거나 Zone (0,0)인 경우 적절한 초기 위치 설정
+    camera.position.set(-15, 12, 15);
+    camera.lookAt(0, 0, 0);
+  }
   // ---- End 자동 로드 ----
 
   // 오른쪽 클릭으로 큐브 삭제
@@ -1098,10 +1281,9 @@ function initApp() {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, camera);
 
-    // 현재 Zone의 실제 존재하는 큐브들만 삭제 가능
+    // 현재 Zone의 큐브들만 삭제 가능
     const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const validZoneCubes = currentZoneCubes.filter(cube => scene.children.includes(cube));
-    const intersects = raycaster.intersectObjects(validZoneCubes);
+    const intersects = raycaster.intersectObjects(currentZoneCubes);
     
     if (intersects.length > 0) {
       event.preventDefault();
@@ -1110,10 +1292,8 @@ function initApp() {
       // 씬에서 제거
       scene.remove(targetCube);
 
-      // Zone 배열에서 제거
-      const zoneX = Math.floor(targetCube.position.x / ZONE_SIZE);
-      const zoneY = Math.floor(targetCube.position.z / ZONE_SIZE);
-      removeCubeFromZone(zoneX, zoneY, targetCube);
+      // Zone 배열에서 제거 (실시간 동기화 포함)
+      removeCubeFromZone(currentZoneX, currentZoneY, targetCube);
 
       // hover 상태 초기화
       if (hoveredCube === targetCube) {
@@ -1127,10 +1307,7 @@ function initApp() {
         highlightEdge = null;
       }
       
-      // Zone 배열 정리 (동기화)
-      cleanupZoneArrays();
-      
-      autoSaveCurrentSpace();
+      // 자동저장은 removeCubeFromZone에서 처리됨
     } else {
       event.preventDefault(); // 컨텍스트 메뉴 표시 방지
     }
@@ -1236,6 +1413,14 @@ function initApp() {
                 const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
                 const cube = new THREE.Mesh(geometry, material);
                 cube.position.set(cubeData.x, cubeData.y, cubeData.z);
+                
+                // gridX, gridY, gridZ 계산해서 설정
+                const localX = cubeData.x - (zoneX * ZONE_SIZE);
+                const localZ = cubeData.z - (zoneY * ZONE_SIZE);
+                cube.gridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+                cube.gridY = Math.round((cubeData.y / cubeSize) - 0.5);
+                cube.gridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+                
                 scene.add(cube);
                 
                 // Zone에 추가
