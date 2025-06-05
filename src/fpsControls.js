@@ -260,9 +260,6 @@ export class FPSControls {
     if (!this.enabled) return;
     this.enabled = false;
     
-    console.log('disable() 시작: enabled =', this.enabled);
-    console.log('disable(): playerObject.children.includes(camera) =', this.playerObject.children.includes(this.camera));
-    
     // 카메라를 playerObject에서 분리하고 월드 좌표로 변환
     if (this.playerObject.children.includes(this.camera)) {
       // 카메라의 월드 위치와 회전을 저장
@@ -270,8 +267,6 @@ export class FPSControls {
       const worldQuaternion = new THREE.Quaternion();
       this.camera.getWorldPosition(worldPosition);
       this.camera.getWorldQuaternion(worldQuaternion);
-      
-      console.log('FPS→편집 전환: 카메라 월드 위치', worldPosition);
       
       // playerObject에서 카메라 제거
       this.playerObject.remove(this.camera);
@@ -285,15 +280,9 @@ export class FPSControls {
       this.camera.position.copy(worldPosition);
       this.camera.setRotationFromQuaternion(worldQuaternion);
       
-      console.log('FPS→편집 전환: 설정 후 카메라 위치', this.camera.position);
-      
       // onExit에서 사용할 수 있도록 월드 위치 저장
       this._exitCameraPosition = worldPosition.clone();
       this._exitCameraQuaternion = worldQuaternion.clone();
-      
-      console.log('_exitCameraPosition 저장됨:', this._exitCameraPosition);
-    } else {
-      console.log('disable(): 카메라가 playerObject의 자식이 아님');
     }
     
     document.exitPointerLock();
@@ -319,8 +308,6 @@ export class FPSControls {
       window.addEventListener('keydown', this.onKeyDown);
       window.addEventListener('keyup', this.onKeyUp);
     } else {
-      console.log('onPointerLockChange: pointer lock 해제됨');
-      
       // 월드 좌표 저장 (disable() 함수의 로직과 동일)
       if (this.enabled && this.playerObject.children.includes(this.camera)) {
         const worldPosition = new THREE.Vector3();
@@ -328,13 +315,9 @@ export class FPSControls {
         this.camera.getWorldPosition(worldPosition);
         this.camera.getWorldQuaternion(worldQuaternion);
         
-        console.log('onPointerLockChange: 카메라 월드 위치', worldPosition);
-        
         // onExit에서 사용할 수 있도록 월드 위치 저장
         this._exitCameraPosition = worldPosition.clone();
         this._exitCameraQuaternion = worldQuaternion.clone();
-        
-        console.log('onPointerLockChange: _exitCameraPosition 저장됨:', this._exitCameraPosition);
       }
       
       this.enabled = false;
