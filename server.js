@@ -1,23 +1,18 @@
 /**
- * 간단한 Express 웹 서버
- * 1. 먼저 터미널에서 아래 명령어로 express를 설치하세요:
- *    npm install express
- * 2. 서버 실행:
- *    node server.js
- * 3. 브라우저에서 http://localhost:3000 접속
+ * Cuberse 웹 서버 - 스페이스 기반 실시간 협업 지원
  */
 const express = require('express');
 const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
+
 const app = express();
 const PORT = 3001;
 
-// 정적 파일 서빙 - 루트에서 HTML 파일들과 src 폴더
+// 정적 파일 서빙
 app.use(express.static(__dirname));
 app.use('/src', express.static(path.join(__dirname, 'src')));
 
-// 루트로 접속 시 index.html 제공
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
@@ -25,101 +20,208 @@ app.get('/', (req, res) => {
 const httpServer = http.createServer(app);
 const io = new Server(httpServer);
 
-// --- 접속자 목록 관리 ---
-let userList = [];
+// --- 스페이스 기반 방 관리 시스템 ---
+class SpaceManager {
+  constructor() {
+    this.spaces = new Map(); // spaceId -> { users: Set, sockets: Set, owner: userId }
+    this.socketToSpace = new Map(); // socketId -> spaceId
+    this.socketToUser = new Map(); // socketId -> userId
+  }
 
-io.on('connection', (socket) => {
-  console.log('새 클라이언트 접속:', socket.id);
+  // 사용자가 스페이스에 입장
+  joinSpace(socketId, userId, spaceId, userSpaces = []) {
+    // 기존 스페이스에서 나가기
+    this.leaveSpace(socketId);
 
-  // --- userId 기준으로만 접속자 목록 관리 ---
-  if (!global.userIdSet) global.userIdSet = new Set();
-  if (!global.socketIdToUserId) global.socketIdToUserId = new Map();
+    // 스페이스 초기화
+    if (!this.spaces.has(spaceId)) {
+      this.spaces.set(spaceId, {
+        users: new Set(),
+        sockets: new Set(),
+        owner: null
+      });
+    }
 
-  // 각 소켓별 사용자 정보 저장용
-  if (!global.socketUserInfo) global.socketUserInfo = new Map();
+    const space = this.spaces.get(spaceId);
+    
+    // 소켓과 사용자 추가
+    space.sockets.add(socketId);
+    space.users.add(userId);
+    this.socketToSpace.set(socketId, spaceId);
+    this.socketToUser.set(socketId, userId);
 
-  socket.on('login', ({ userId, userSpaces, spaceId }) => {
-    if (!userId) return;
-    global.userIdSet.add(userId);
-    global.socketIdToUserId.set(socket.id, userId);
-    // 소켓별 사용자 정보 저장
-    global.socketUserInfo.set(socket.id, { userId, userSpaces, spaceId });
+    // 소유자 설정: userSpaces에 spaceId가 있으면 소유자
+    const isOwner = Array.isArray(userSpaces) && userSpaces.includes(spaceId);
+    if (isOwner || !space.owner) {
+      space.owner = userId;
+    }
 
-    // 현재 방의 spaceId를 소유한 userId가 owner
-    let ownerId = null;
-    let ownerSocketId = null;
-    for (const [sid, info] of global.socketUserInfo.entries()) {
-      if (info && info.spaceId === spaceId && Array.isArray(info.userSpaces) && info.userSpaces.includes(spaceId)) {
-        ownerId = info.userId;
-        ownerSocketId = sid;
-        break;
+    return this.getSpaceUserList(spaceId);
+  }
+
+  // 사용자가 스페이스에서 나가기
+  leaveSpace(socketId) {
+    const spaceId = this.socketToSpace.get(socketId);
+    const userId = this.socketToUser.get(socketId);
+    
+    if (!spaceId) return null;
+
+    const space = this.spaces.get(spaceId);
+    if (space) {
+      // 소켓 제거
+      space.sockets.delete(socketId);
+      
+      // 같은 사용자의 다른 소켓이 있는지 확인
+      const userStillInSpace = Array.from(space.sockets).some(sid => 
+        this.socketToUser.get(sid) === userId
+      );
+      
+      // 다른 소켓이 없으면 사용자도 제거
+      if (!userStillInSpace) {
+        space.users.delete(userId);
+        
+        // 소유자가 나간 경우 다른 사용자를 소유자로 지정
+        if (space.owner === userId) {
+          space.owner = space.users.size > 0 ? Array.from(space.users)[0] : null;
+        }
+      }
+      
+      // 스페이스가 비어있으면 제거
+      if (space.sockets.size === 0) {
+        this.spaces.delete(spaceId);
       }
     }
-    const userIdArr = Array.from(global.userIdSet);
-    const userListWithOwnerInfo = userIdArr.map(uid => ({
-      userId: uid,
-      isOwner: uid === ownerId
+
+    this.socketToSpace.delete(socketId);
+    this.socketToUser.delete(socketId);
+    
+    return spaceId;
+  }
+
+  // 스페이스 사용자 목록 가져오기
+  getSpaceUserList(spaceId) {
+    const space = this.spaces.get(spaceId);
+    if (!space) return [];
+
+    return Array.from(space.users).map(userId => ({
+      userId,
+      isOwner: userId === space.owner
     }));
-    io.emit('user list', userListWithOwnerInfo);
+  }
 
-    // 소켓별 ownerSocketId도 저장 (방별로 여러 owner가 있을 수 있으나, 여기선 1명만)
-    if (!global.spaceIdToOwnerSocketId) global.spaceIdToOwnerSocketId = new Map();
-    if (spaceId && ownerSocketId) {
-      global.spaceIdToOwnerSocketId.set(spaceId, ownerSocketId);
+  // 스페이스의 모든 소켓에 이벤트 전송
+  emitToSpace(spaceId, event, data) {
+    const space = this.spaces.get(spaceId);
+    if (space) {
+      space.sockets.forEach(socketId => {
+        io.to(socketId).emit(event, data);
+      });
+    }
+  }
+
+  // 소켓이 속한 스페이스 ID 반환
+  getSocketSpace(socketId) {
+    return this.socketToSpace.get(socketId);
+  }
+}
+
+const spaceManager = new SpaceManager();
+
+// --- Socket.IO 연결 처리 ---
+io.on('connection', (socket) => {
+  console.log(`새 클라이언트 접속: ${socket.id}`);
+
+  // 사용자가 스페이스에 로그인
+  socket.on('login', ({ userId, spaceId, userSpaces }) => {
+    if (!userId || !spaceId) {
+      console.log(`로그인 실패: userId=${userId}, spaceId=${spaceId}`);
+      return;
+    }
+
+    console.log(`${userId}가 스페이스 ${spaceId}에 입장, userSpaces:`, userSpaces);
+    
+    const userList = spaceManager.joinSpace(socket.id, userId, spaceId, userSpaces);
+    
+    // 스페이스 사용자들에게 입장 알림
+    spaceManager.emitToSpace(spaceId, 'user joined', { userId, userList });
+    spaceManager.emitToSpace(spaceId, 'user list', { spaceId, userList });
+  });
+
+  // 큐브 추가 이벤트 (스페이스 내 브로드캐스트)
+  socket.on('add cube', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      spaceManager.emitToSpace(spaceId, 'add cube', data);
     }
   });
 
-  // --- 신규 참가자: 방 정보 요청 relay ---
+  // 큐브 삭제 이벤트 (스페이스 내 브로드캐스트)
+  socket.on('remove cube', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      spaceManager.emitToSpace(spaceId, 'remove cube', data);
+    }
+  });
+
+  // 방 정보 요청 (게스트 → 호스트)
   socket.on('request room info', ({ spaceId }) => {
+    console.log(`[ROOM] 방 정보 요청: spaceId=${spaceId}, 요청자=${socket.id}`);
+    
     if (!spaceId) return;
-    if (!global.spaceIdToOwnerSocketId) return;
-    const ownerSocketId = global.spaceIdToOwnerSocketId.get(spaceId);
-    if (ownerSocketId) {
-      // 주인에게 요청자 소켓 id와 spaceId 전달
-      io.to(ownerSocketId).emit('request room info', { requesterSocketId: socket.id, spaceId });
+    
+    const space = spaceManager.spaces.get(spaceId);
+    if (space && space.owner) {
+      // 호스트에게 방 정보 요청 전달
+      const ownerSockets = Array.from(space.sockets).filter(sid => 
+        spaceManager.socketToUser.get(sid) === space.owner
+      );
+      
+      if (ownerSockets.length > 0) {
+        const ownerSocketId = ownerSockets[0]; // 첫 번째 호스트 소켓
+        console.log(`[ROOM] 호스트 ${space.owner}(${ownerSocketId})에게 방 정보 요청 전달`);
+        io.to(ownerSocketId).emit('request room info', { 
+          requesterSocketId: socket.id, 
+          spaceId 
+        });
+      } else {
+        console.log(`[ROOM] 호스트 ${space.owner}를 찾을 수 없음`);
+      }
+    } else {
+      console.log(`[ROOM] 스페이스 ${spaceId} 또는 호스트가 없음`);
     }
   });
 
-  // --- 주인: 방 정보 전송 시 요청자에게 relay ---
+  // 방 정보 전달 (호스트 → 게스트)
   socket.on('send room info', ({ to, spaceId, sceneData }) => {
+    console.log(`[ROOM] 방 정보 전달: ${socket.id} → ${to}, spaceId=${spaceId}`);
+    
     if (to && sceneData) {
       io.to(to).emit('room info', { sceneData });
+      console.log(`[ROOM] 방 정보 전달 완료`);
+    } else {
+      console.log(`[ROOM] 방 정보 전달 실패: to=${to}, sceneData=${!!sceneData}`);
     }
   });
 
-  // 예시: 클라이언트로부터 받은 메시지를 전체 브로드캐스트
-  socket.on('chat message', (msg) => {
-    io.emit('chat message', msg);
-  });
-
-  // --- 큐브 추가 이벤트 브로드캐스트 ---
-  socket.on('add cube', (cubeData) => {
-    console.log('[Socket.IO] 서버에서 add cube 수신:', cubeData);
-    io.emit('add cube', cubeData);
-    console.log('[Socket.IO] 서버에서 add cube 브로드캐스트:', cubeData);
-  });
-
-  // --- 큐브 삭제 이벤트 브로드캐스트 ---
-  socket.on('remove cube', (data) => {
-    console.log('[Socket.IO] 서버에서 remove cube 수신:', data);
-    io.emit('remove cube', data);
-    console.log('[Socket.IO] 서버에서 remove cube 브로드캐스트:', data);
-  });
-
+  // 연결 해제 처리
   socket.on('disconnect', () => {
-    console.log('클라이언트 연결 해제:', socket.id);
-    const userId = global.socketIdToUserId.get(socket.id);
-    global.socketIdToUserId.delete(socket.id);
-
-    // 남아있는 소켓 중에 같은 userId가 없으면 userIdSet에서 제거
-    const stillConnected = Array.from(global.socketIdToUserId.values()).includes(userId);
-    if (!stillConnected && userId) {
-      global.userIdSet.delete(userId);
+    const userId = spaceManager.socketToUser.get(socket.id);
+    const leftSpaceId = spaceManager.leaveSpace(socket.id);
+    
+    if (leftSpaceId && userId) {
+      console.log(`${userId}가 스페이스 ${leftSpaceId}에서 나감`);
+      
+      const userList = spaceManager.getSpaceUserList(leftSpaceId);
+      
+      // 스페이스 사용자들에게 퇴장 알림
+      spaceManager.emitToSpace(leftSpaceId, 'user left', { userId, userList });
+      spaceManager.emitToSpace(leftSpaceId, 'user list', { spaceId: leftSpaceId, userList });
     }
-    io.emit('user list', Array.from(global.userIdSet));
+    
+    console.log(`클라이언트 연결 해제: ${socket.id}`);
   });
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
+  console.log(`Cuberse 서버가 http://localhost:${PORT}에서 실행 중입니다.`);
 });

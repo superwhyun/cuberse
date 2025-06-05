@@ -166,13 +166,26 @@ function initApp() {
         let isOwner = false;
         let myId = localStorage.getItem('cuberse_current_user');
         let userListCache = [];
-        socket.on('user list', (userList) => {
+        let hasRequestedRoomInfo = false; // 방 정보 요청 플래그
+        
+        socket.on('user list', (payload) => {
+          // payload: { spaceId, userList }
+          let list = payload;
+          let listSpaceId = spaceId;
+          if (payload && typeof payload === 'object' && Array.isArray(payload.userList)) {
+            list = payload.userList;
+            listSpaceId = payload.spaceId;
+          }
+          // 현재 내 spaceId와 다르면 무시
+          if (listSpaceId !== spaceId) return;
+
           const ul = document.getElementById('user-list');
           myId = localStorage.getItem('cuberse_current_user');
-          userListCache = userList;
+          userListCache = list;
+          isOwner = false;
           if (ul) {
             ul.innerHTML = '';
-            userList.forEach(user => {
+            list.forEach(user => {
               const li = document.createElement('li');
               let label = user.userId;
               if (user.userId === myId) label += ' (나)';
@@ -182,31 +195,49 @@ function initApp() {
               ul.appendChild(li);
             });
           }
-          // 내가 주인이 아니면 방 정보 요청
-          if (!isOwner) {
+          // 내가 주인이 아니면 방 정보 요청 (한 번만)
+          if (!isOwner && !hasRequestedRoomInfo) {
+            console.log('[ROOM] 방 정보 요청 전송:', spaceId);
             socket.emit('request room info', { spaceId });
+            hasRequestedRoomInfo = true;
           }
         });
 
         // --- 방 정보(씬 데이터) 수신 시 localStorage에 저장 및 동기화 ---
         socket.on('room info', ({ sceneData }) => {
+          console.log('[ROOM] 방 정보 수신:', { 
+            hasSceneData: !!sceneData,
+            zoneCount: sceneData ? Object.keys(sceneData).filter(k => k !== 'currentZone').length : 0,
+            totalCubes: sceneData ? Object.values(sceneData).filter(v => Array.isArray(v)).reduce((sum, arr) => sum + arr.length, 0) : 0
+          });
           if (sceneData) {
             saveSpace(spaceId, sceneData);
-            // 씬 동기화 함수 호출 필요 (예: reloadSceneData())
             showToast('방 정보 동기화 완료');
-            // location.reload(); // 필요시 전체 새로고침
+            // 즉시 씬 데이터 로드 (새로고침 대신)
+            loadSceneFromData(sceneData);
           }
         });
 
         // --- 주인: 방 정보 요청 수신 시 처리 ---
         socket.on('request room info', ({ requesterSocketId, spaceId: reqSpaceId }) => {
+          console.log('[ROOM] 방 정보 요청 수신:', { requesterSocketId, reqSpaceId, mySpaceId: spaceId, isOwner });
           // 내가 주인이고, 요청 spaceId가 내 spaceId와 같으면
           if (isOwner && reqSpaceId === spaceId) {
             const sceneData = loadSpace(spaceId);
+            console.log('[ROOM] 방 정보 전달 시도:', { 
+              hasSceneData: !!sceneData,
+              zoneCount: sceneData ? Object.keys(sceneData).filter(k => k !== 'currentZone').length : 0,
+              totalCubes: sceneData ? Object.values(sceneData).filter(v => Array.isArray(v)).reduce((sum, arr) => sum + arr.length, 0) : 0
+            });
             if (sceneData) {
               socket.emit('send room info', { to: requesterSocketId, spaceId, sceneData });
               showToast('방 정보 요청에 응답함');
+              console.log('[ROOM] 방 정보 전달 완료');
+            } else {
+              console.log('[ROOM] 전달할 씬 데이터가 없음');
             }
+          } else {
+            console.log('[ROOM] 요청 거부 - 주인이 아니거나 spaceId 불일치');
           }
         });
 
@@ -1221,14 +1252,14 @@ function initApp() {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // ---- 첫 진입 시 해당 spaceId에 저장된 씬 자동 로드 ----
-  const loadedSceneData = loadSpace(spaceId);
-  if (loadedSceneData) {
-    console.log('자동 로드 데이터:', loadedSceneData); // 디버깅
+  // 씬 데이터로부터 로드하는 함수
+  function loadSceneFromData(loadedSceneData) {
+    // 기존 큐브들 모두 제거
+    clearScene();
     
     if (loadedSceneData.currentZone) {
       // 새로운 Zone 시스템 데이터
-      console.log('Zone 시스템 데이터 자동 로드');
+      console.log('Zone 시스템 데이터 로드');
       
       // 현재 Zone 위치 복원
       currentZoneX = loadedSceneData.currentZone.x || 0;
@@ -1239,7 +1270,6 @@ function initApp() {
         if (zoneKey === 'currentZone') continue;
         
         const [zoneX, zoneY] = zoneKey.split(',').map(Number);
-        console.log(`Zone ${zoneKey} 자동 로드: ${cubeDataList.length}개 큐브`);
         
         cubeDataList.forEach(cubeData => {
           // 월드 좌표로 직접 큐브 생성
@@ -1277,7 +1307,7 @@ function initApp() {
       
     } else if (Array.isArray(loadedSceneData)) {
       // 기존 배열 형식 데이터 (호환성)
-      console.log('기존 배열 데이터 자동 로드');
+      console.log('기존 배열 데이터 로드');
       loadedSceneData.forEach(cubeData => {
         // Zone 0,0에 로드
         const localX = cubeData.x;
@@ -1289,11 +1319,31 @@ function initApp() {
         addCube(Math.round(gridX), Math.round(gridY), Math.round(gridZ), cubeData.color);
       });
     }
+    
+    // ---- 초기 카메라 위치 설정 (데이터 로드 후) ----
+    if (currentZoneX === 0 && currentZoneY === 0) {
+      // 첫 접속이거나 Zone (0,0)인 경우 적절한 초기 위치 설정
+      camera.position.set(-15, 12, 15);
+      camera.lookAt(0, 0, 0);
+    }
   }
   
-  // ---- 초기 카메라 위치 설정 (데이터 로드 후) ----
-  if (!loadedSceneData || (currentZoneX === 0 && currentZoneY === 0)) {
-    // 첫 접속이거나 Zone (0,0)인 경우 적절한 초기 위치 설정
+  // 씬의 모든 큐브 제거
+  function clearScene() {
+    // 모든 Zone의 기존 큐브들 제거
+    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+      zoneCubes.forEach(cube => scene.remove(cube));
+      zoneCubes.length = 0; // 배열 비우기
+    }
+  }
+
+  // ---- 첫 진입 시 해당 spaceId에 저장된 씬 자동 로드 ----
+  const loadedSceneData = loadSpace(spaceId);
+  if (loadedSceneData) {
+    console.log('자동 로드 데이터:', loadedSceneData);
+    loadSceneFromData(loadedSceneData);
+  } else {
+    // ---- 초기 카메라 위치 설정 (데이터가 없을 때) ----
     camera.position.set(-15, 12, 15);
     camera.lookAt(0, 0, 0);
   }
