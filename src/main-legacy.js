@@ -160,97 +160,167 @@ function initApp() {
   let dragStartCube = null; // 드래그 시작 큐브
   let dragStartFace = null; // 드래그 시작 면
 
-  // 씬, 카메라, 렌더러 생성
+  // ---- 3D 환경 구성: 씬, 카메라, 렌더러, 플레이어 본체, FPSControls ----
+  // 1. THREE.Scene 생성
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
   console.log('씬 생성:', scene);
 
+  // 2. THREE.PerspectiveCamera 생성
+  //    (FPS/편집모드 전환에 따라 위치와 계층 구조가 결정됨)
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  // Zone 0,0을 바라보도록 카메라 설정
-  camera.position.set(10, 15, 20);
-  camera.lookAt(0, 0, 0);
   console.log('카메라 생성:', camera);
 
+  // 3. THREE.WebGLRenderer 생성 및 DOM에 추가
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   container.appendChild(renderer.domElement);
   console.log('렌더러 생성 및 추가:', renderer);
 
-  // Jump In 버튼 생성 (FPS 모드 진입)
-  // FPSControls 인스턴스 생성 및 장애물 연결
-fpsControls = new FPSControls(camera, renderer.domElement);
-// FPS 모드 해제 시(편집모드 복귀) 카메라를 위로 올리고 아래를 비스듬히 바라보게 리셋
-fpsControls.onExit = () => {
-  // 편집모드 복귀 시 현재 위치 기준으로 카메라를 부드럽게 위로 슬라이딩
-  const currentPos = {
-    x: camera.position.x,
-    y: camera.position.y,
-    z: camera.position.z
-  };
-  
-  // FPS에서 보던 방향을 계산
-  const currentDirection = new THREE.Vector3();
-  camera.getWorldDirection(currentDirection);
-  
-  // 수평 방향만 유지 (Y축 제거)
-  currentDirection.y = 0;
-  currentDirection.normalize();
-  
-  const targetPos = {
-    x: currentPos.x, 
-    y: currentPos.y + 12, // 현재 위치에서 12 유닛 위로
-    z: currentPos.z + 3  // 뒤로 약간 빼기
-  };
-  
-  // FPS에서 보던 방향을 유지하면서 70도 하방으로 바라보기
-  const lookDistance = 15; // 바라볼 거리
-  const targetLook = {
-    x: currentPos.x + currentDirection.x * lookDistance,
-    y: currentPos.y - 10, // 70도 하방
-    z: currentPos.z + currentDirection.z * lookDistance
-  };
-  
-  const startPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
-  const startLook = { x: 0, y: 0, z: 0 };
-  const lookVec = new THREE.Vector3();
-  camera.getWorldDirection(lookVec);
-  const camLookAt = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z).add(lookVec);
-  startLook.x = camLookAt.x;
-  startLook.y = camLookAt.y;
-  startLook.z = camLookAt.z;
+  // 4. 플레이어 본체(THREE.Object3D) 생성 및 씬에 추가
+  //    FPS 모드에서 카메라의 부모가 됨
+  //    (이 구조를 통해 FPSControls가 위치/회전을 일관되게 제어)
+  const playerObject = new THREE.Object3D();
+  scene.add(playerObject);
 
-  const duration = 700; // ms
-  const startTime = performance.now();
+  // 5. 카메라 위치(눈높이) 설정 및 playerObject의 자식으로 추가
+  //    (중복 add 방지, 계층 구조 명확화)
+  camera.position.set(0, 1.6, 0); // baseY = 1.6 (눈높이)
+  playerObject.add(camera);
 
-  function animateTransition(now) {
-    const t = Math.min((now - startTime) / duration, 1);
-    // easeInOutQuad
-    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    camera.position.x = startPos.x + (targetPos.x - startPos.x) * ease;
-    camera.position.y = startPos.y + (targetPos.y - startPos.y) * ease;
-    camera.position.z = startPos.z + (targetPos.z - startPos.z) * ease;
-    camera.lookAt(
-      startLook.x + (targetLook.x - startLook.x) * ease,
-      startLook.y + (targetLook.y - startLook.y) * ease,
-      startLook.z + (targetLook.z - startLook.z) * ease
-    );
-    if (t < 1) {
-      requestAnimationFrame(animateTransition);
+  // 6. FPSControls 인스턴스 생성 (playerObject, camera, renderer.domElement 순)
+  //    FPS 모드에서는 playerObject가 실제 이동하며, camera는 그 자식
+  fpsControls = new FPSControls(playerObject, camera, renderer.domElement);
+
+  // FPS 모드 해제 시(편집모드 복귀) 카메라를 위로 올리고 아래를 비스듬히 바라보게 리셋
+  fpsControls.onExit = () => {
+    console.log('onExit 시작');
+    console.log('_exitCameraPosition:', fpsControls._exitCameraPosition);
+    console.log('_exitCameraQuaternion:', fpsControls._exitCameraQuaternion);
+    
+    // 플레이어 객체 숨기기 (즉시)
+    if (fpsControls.playerMesh) {
+      fpsControls.playerMesh.visible = false;
+    }
+    
+    // disable()에서 저장한 월드 좌표 사용
+    const currentPos = fpsControls._exitCameraPosition ? {
+      x: fpsControls._exitCameraPosition.x,
+      y: fpsControls._exitCameraPosition.y,
+      z: fpsControls._exitCameraPosition.z
+    } : {
+      x: camera.position.x,
+      y: camera.position.y,
+      z: camera.position.z
+    };
+    
+    console.log('onExit 시작: 카메라 위치', currentPos);
+    console.log('사용된 위치 소스:', fpsControls._exitCameraPosition ? 'exitCameraPosition' : 'camera.position');
+    
+    // 저장된 회전에서 방향 계산 (월드 좌표 기준)
+    let currentDirection = new THREE.Vector3(0, 0, -1);
+    if (fpsControls._exitCameraQuaternion) {
+      currentDirection.applyQuaternion(fpsControls._exitCameraQuaternion);
+    } else {
+      camera.getWorldDirection(currentDirection);
+    }
+    
+    // 수평 방향만 유지 (Y축 제거)
+    const horizontalDirection = currentDirection.clone();
+    horizontalDirection.y = 0;
+    horizontalDirection.normalize();
+    
+    // 더 자연스러운 목표 위치 (덜 과도하게)
+    const targetPos = {
+      x: currentPos.x, 
+      y: currentPos.y + 8, // 8 유닛 위로 (15에서 8로 줄임)
+      z: currentPos.z - 2  // 뒤로 2 유닛만 (5에서 2로 줄임)
+    };
+    
+    console.log('onExit 목표 위치', targetPos);
+    
+    // 더 자연스러운 시선 목표 (덜 급격하게)
+    const lookDistance = 12; // 바라볼 거리 (20에서 12로 줄임)
+    const targetLook = {
+      x: currentPos.x + horizontalDirection.x * lookDistance,
+      y: currentPos.y - 3, // 30도 하방 (8에서 3으로 줄임)
+      z: currentPos.z + horizontalDirection.z * lookDistance
+    };
+    
+    // 카메라를 playerObject에서 분리하고 씬에 추가 (disable() 로직)
+    if (fpsControls.playerObject.children.includes(camera)) {
+      fpsControls.playerObject.remove(camera);
+      if (!scene.children.includes(camera)) {
+        scene.add(camera);
+      }
+    }
+    
+    // 카메라 초기 위치 설정
+    camera.position.set(currentPos.x, currentPos.y, currentPos.z);
+    
+    // 현재 시선 방향으로 카메라 회전 설정 (방향 튐 방지)
+    if (fpsControls._exitCameraQuaternion) {
+      camera.setRotationFromQuaternion(fpsControls._exitCameraQuaternion);
+    }
+    
+    const startPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
+    const startLook = { x: 0, y: 0, z: 0 };
+    
+    // 현재 방향에서 lookAt 계산
+    const lookVec = horizontalDirection.clone();
+    const camLookAt = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z).add(lookVec);
+    startLook.x = camLookAt.x;
+    startLook.y = camLookAt.y;
+    startLook.z = camLookAt.z;
+
+    const duration = 600; // ms (900에서 600으로 줄임, 더 빠르게)
+    const startTime = performance.now();
+
+    function animateTransition(now) {
+      const t = Math.min((now - startTime) / duration, 1);
+      // easeOutQuart (더 부드러운 감속)
+      const ease = 1 - Math.pow(1 - t, 4);
+      
+      camera.position.x = startPos.x + (targetPos.x - startPos.x) * ease;
+      camera.position.y = startPos.y + (targetPos.y - startPos.y) * ease;
+      camera.position.z = startPos.z + (targetPos.z - startPos.z) * ease;
+      camera.lookAt(
+        startLook.x + (targetLook.x - startLook.x) * ease,
+        startLook.y + (targetLook.y - startLook.y) * ease,
+        startLook.z + (targetLook.z - startLook.z) * ease
+      );
+      if (t < 1) {
+        requestAnimationFrame(animateTransition);
+      } else {
+        console.log('onExit 완료: 최종 카메라 위치', camera.position);
+        // 애니메이션 완료 후 플레이어 객체 완전 제거
+        if (fpsControls.playerMesh && scene.children.includes(fpsControls.playerMesh)) {
+          scene.remove(fpsControls.playerMesh);
+          fpsControls.playerMesh = null;
+        }
+        // 임시 저장 변수 정리
+        delete fpsControls._exitCameraPosition;
+        delete fpsControls._exitCameraQuaternion;
+      }
+    }
+    requestAnimationFrame(animateTransition);
+  };
+
+  // Jump In 버튼 생성 시 FPSControls 인스턴스 전달
+  createJumpInButton(camera, renderer.domElement, fpsControls);
+
+  // FPSControls에 scene 연결 및 playerMesh 생성
+  if (fpsControls) {
+    fpsControls.setScene(scene);
+  }
+
+  // FPSControls에 현재 Zone 큐브 전달
+  function updateFpsObstacles() {
+    if (fpsControls) {
+      fpsControls.setObstacles(Object.values(zoneData).flat());
     }
   }
-  requestAnimationFrame(animateTransition);
-};
-
-// Jump In 버튼 생성 시 FPSControls 인스턴스 전달
-createJumpInButton(camera, renderer.domElement, fpsControls);
-
-// FPSControls에 현재 Zone 큐브 전달
-function updateFpsObstacles() {
-  if (fpsControls) {
-    fpsControls.setObstacles(Object.values(zoneData).flat());
-  }
-}
-updateFpsObstacles();
+  updateFpsObstacles();
 
   // Zone별 그리드 관리 시스템
   const zoneGrids = new Map();
