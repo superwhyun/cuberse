@@ -1,11 +1,16 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-
 import { getUserSpaces } from './spaces.js';
+import { showLoading, hideLoading, showToast } from './utils.js';
+import { initCore3D, startAnimation } from './core3d.js'; // Removed aliased imports for core3d objects, will use scene, camera etc. directly from initCore3D return
+import {
+  initZoneManager,
+  switchToZone as zmSwitchToZone, // Alias for now
+  setNetworkContext as zmSetNetworkContext
+  // Other zoneManager imports will be added as needed in later stages
+} from './zoneManager.js';
 
-// --- 전역 spaceId, currentZoneX, currentZoneY 선언 ---
+// --- 전역 spaceId 선언 ---
 let spaceId;
-let currentZoneX;
-let currentZoneY;
+// Global currentZoneX, currentZoneY removed. They are managed by zoneManager or passed as params.
 import { createJumpInButton } from './jumpInButton.js';
 import { FPSControls } from './fpsControls.js';
 // --- Socket.IO 클라이언트 연결 ---
@@ -14,39 +19,11 @@ let isRealtimeAvailable = false;
 
 // setupSocketIO 함수는 initApp 내부에서 정의될 예정
 // -----------------------------------------
-console.log('main-legacy.js 로딩됨, THREE:', THREE);
+console.log('main-legacy.js 로딩됨');
 
-// 유틸리티 함수들
-function showLoading(text = '로딩 중...') {
-  const overlay = document.createElement('div');
-  overlay.className = 'loading-overlay';
-  overlay.id = 'loading-overlay';
-  overlay.innerHTML = `
-    <div class="loading-spinner"></div>
-    <div class="loading-text">${text}</div>
-  `;
-  document.body.appendChild(overlay);
-}
-
-function hideLoading() {
-  const overlay = document.getElementById('loading-overlay');
-  if (overlay) overlay.remove();
-  const initialLoading = document.getElementById('initial-loading');
-  if (initialLoading) initialLoading.remove();
-}
-
-function showToast(message, isError = false) {
-  const toast = document.createElement('div');
-  toast.className = `toast ${isError ? 'error' : ''}`;
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  
-  setTimeout(() => toast.classList.add('show'), 100);
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
-}
+// Core 3D objects - these will be assigned after initCore3D
+let scene, camera, renderer, playerObject;
+let zoneManager; // Declare zoneManager
 
 function initApp() {
   // FPSControls 인스턴스 참조 전역 변수 선언
@@ -57,6 +34,14 @@ function initApp() {
 
   
   try {
+    const container = document.getElementById('container');
+    // Initialize Core 3D setup
+    const core3DObjects = initCore3D(container);
+    scene = core3DObjects.scene;
+    camera = core3DObjects.camera;
+    renderer = core3DObjects.renderer;
+    playerObject = core3DObjects.playerObject;
+
   // ---- Multi-Space/Workspace Support ----
   function generateSpaceId() {
     return Math.random().toString(36).substr(2, 8);
@@ -83,70 +68,33 @@ function initApp() {
   }
   spaceId = getSpaceIdFromUrl();
   
-  // ---- Zone System ----
-  currentZoneX = 0;
-  currentZoneY = 0;
-  const ZONE_SIZE = 20; // 각 Zone은 20x20
-  const ZONE_DIVISIONS = 20;
+  // Initialize ZoneManager
+  const updateFpsObstaclesCb = () => updateFpsObstacles();
+  const showToastCb = (message, isError) => showToast(message, isError);
+
+  // Initial values for network related params for zoneManager.
+  // These will be updated by zmSetNetworkContext when socket connects.
+  zoneManager = initZoneManager(
+    scene,
+    0, // initialZoneX
+    0, // initialZoneY
+    spaceId,
+    isRealtimeAvailable, // initial value
+    socket, // initial value (null)
+    updateFpsObstaclesCb,
+    showToastCb
+  );
   
-  // Zone별 큐브 데이터 저장
-  const zoneData = {};
+  // ---- Old Zone System Variables and Functions are now being removed ----
+  // const ZONE_SIZE = 20; // Removed
+  // const ZONE_DIVISIONS = 20; // Removed
+  // const cubeSize = ZONE_SIZE / ZONE_DIVISIONS; // Removed
+
+  // Dummy getZoneCubes and addCubeToZone are no longer needed as the main addCube and click listener will be removed.
+  // function getZoneCubes(zx, zy) { ... } // Removed
+  // function addCubeToZone(zx, zy, c) { ... } // Removed
   
-  function getZoneKey(zoneX, zoneY) {
-    return `${zoneX},${zoneY}`;
-  }
-  
-  function getCurrentZoneKey() {
-    return getZoneKey(currentZoneX, currentZoneY);
-  }
-  
-  function getZoneCubes(zoneX, zoneY) {
-    const key = getZoneKey(zoneX, zoneY);
-    if (!zoneData[key]) {
-      zoneData[key] = [];
-    }
-    return zoneData[key];
-  }
-  
-  function addCubeToZone(zoneX, zoneY, cube) {
-    const zoneCubes = getZoneCubes(zoneX, zoneY);
-    zoneCubes.push(cube);
-    updateFpsObstacles();
-  }
-  
-  function removeCubeFromZone(zoneX, zoneY, cube, emitToSocket = true) {
-    const zoneCubes = getZoneCubes(zoneX, zoneY);
-    const index = zoneCubes.findIndex(c =>
-      Math.abs(c.position.x - cube.position.x) < 0.01 &&
-      Math.abs(c.position.y - cube.position.y) < 0.01 &&
-      Math.abs(c.position.z - cube.position.z) < 0.01
-    );
-    
-    if (index > -1) {
-      // 실시간 동기화: emitToSocket이 true일 때만 전송
-      if (emitToSocket && isRealtimeAvailable && socket) {
-        const data = {
-          x: cube.gridX,
-          y: cube.gridY,
-          z: cube.gridZ,
-          zoneX: zoneX,
-          zoneY: zoneY,
-          spaceId: spaceId
-        };
-        socket.emit('remove cube', data);
-      }
-      
-      zoneCubes.splice(index, 1);
-      updateFpsObstacles();
-      
-      // 로컬 삭제일 때만 자동저장 (원격 삭제 시에는 자동저장 안 함)
-      if (emitToSocket) {
-        autoSaveCurrentSpace();
-      }
-    }
-  }
-  
-  // Socket.IO 초기화 (Zone 함수들이 정의된 후)
+  // Socket.IO 초기화
   function setupSocketIO() {
     try {
       if (window.io) {
@@ -154,6 +102,9 @@ function initApp() {
         
         socket.on('connect', () => {
           isRealtimeAvailable = true;
+          if (zoneManager) {
+            zoneManager.setNetworkContext(spaceId, isRealtimeAvailable, socket);
+          }
           
           const userId = localStorage.getItem('cuberse_current_user');
           if (userId) {
@@ -166,17 +117,15 @@ function initApp() {
         let isOwner = false;
         let myId = localStorage.getItem('cuberse_current_user');
         let userListCache = [];
-        let hasRequestedRoomInfo = false; // 방 정보 요청 플래그
+        let hasRequestedRoomInfo = false;
         
         socket.on('user list', (payload) => {
-          // payload: { spaceId, userList }
           let list = payload;
           let listSpaceId = spaceId;
           if (payload && typeof payload === 'object' && Array.isArray(payload.userList)) {
             list = payload.userList;
             listSpaceId = payload.spaceId;
           }
-          // 현재 내 spaceId와 다르면 무시
           if (listSpaceId !== spaceId) return;
 
           const ul = document.getElementById('user-list');
@@ -195,7 +144,6 @@ function initApp() {
               ul.appendChild(li);
             });
           }
-          // 내가 주인이 아니면 방 정보 요청 (한 번만)
           if (!isOwner && !hasRequestedRoomInfo) {
             console.log('[ROOM] 방 정보 요청 전송:', spaceId);
             socket.emit('request room info', { spaceId });
@@ -203,7 +151,6 @@ function initApp() {
           }
         });
 
-        // --- 방 정보(씬 데이터) 수신 시 localStorage에 저장 및 동기화 ---
         socket.on('room info', ({ sceneData }) => {
           console.log('[ROOM] 방 정보 수신:', { 
             hasSceneData: !!sceneData,
@@ -213,15 +160,12 @@ function initApp() {
           if (sceneData) {
             saveSpace(spaceId, sceneData);
             showToast('방 정보 동기화 완료');
-            // 즉시 씬 데이터 로드 (새로고침 대신)
             loadSceneFromData(sceneData);
           }
         });
 
-        // --- 주인: 방 정보 요청 수신 시 처리 ---
         socket.on('request room info', ({ requesterSocketId, spaceId: reqSpaceId }) => {
           console.log('[ROOM] 방 정보 요청 수신:', { requesterSocketId, reqSpaceId, mySpaceId: spaceId, isOwner });
-          // 내가 주인이고, 요청 spaceId가 내 spaceId와 같으면
           if (isOwner && reqSpaceId === spaceId) {
             const sceneData = loadSpace(spaceId);
             console.log('[ROOM] 방 정보 전달 시도:', { 
@@ -241,152 +185,103 @@ function initApp() {
           }
         });
 
-        // 큐브 추가 이벤트 수신
-        socket.on('add cube', (data) => {
-          if (data.spaceId === spaceId) {
-            // 중복 검사
-            const zoneCubes = getZoneCubes(data.zoneX, data.zoneY);
-            if (zoneCubes.some(cube => cube.gridX === data.x && cube.gridY === data.y && cube.gridZ === data.z)) {
-              return;
-            }
-            
-            // 해당 Zone의 큐브로 직접 생성
-            const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-            const material = new THREE.MeshLambertMaterial({ color: data.color });
-            const cube = new THREE.Mesh(geometry, material);
-            
-            // Zone 좌표계 적용
-            const worldX = (data.zoneX * ZONE_SIZE) + (data.x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-            const worldZ = (data.zoneY * ZONE_SIZE) + (data.z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-            
-            cube.position.set(
-              worldX,
-              (data.y + 0.5) * cubeSize,
-              worldZ
-            );
-            
-            // grid 좌표 설정
-            cube.gridX = data.x;
-            cube.gridY = data.y;
-            cube.gridZ = data.z;
-            cube._byRemote = true;
-            
-            scene.add(cube);
-            addCubeToZone(data.zoneX, data.zoneY, cube);
-            updateFpsObstacles();
+        socket.on('add cube', (eventData) => {
+          if (eventData.spaceId === spaceId) {
+            const { x, y, z, color, zoneX, zoneY } = eventData;
+            // Call the main callback to add the cube, flagging as remote
+            addCubeToSceneCallback(x, y, z, color, zoneX, zoneY, true /*isRemote*/);
           }
         });
         
-        // 큐브 삭제 이벤트 수신
-        socket.on('remove cube', (data) => {
-          if (data.spaceId === spaceId) {
-            const zoneCubes = getZoneCubes(data.zoneX, data.zoneY);
-            const target = zoneCubes.find(cube =>
-              cube.gridX === data.x && cube.gridY === data.y && cube.gridZ === data.z
+        socket.on('remove cube', (eventData) => {
+          if (eventData.spaceId === spaceId) {
+            const { x, y, z, zoneX, zoneY } = eventData;
+            const rcvdCubeSize = zoneManager.getCubeSize();
+            const rcvdZoneSize = zoneManager.getZoneSize();
+            const rcvdDivisions = zoneManager.getZoneDivisions();
+
+            const cubeMeshToRemove = scene.children.find(mesh =>
+              mesh.isMesh &&
+              mesh.gridX === x &&
+              mesh.gridY === y &&
+              mesh.gridZ === z &&
+              ( () => {
+                  const expectedWorldX = (zoneX * rcvdZoneSize) + (x - rcvdDivisions / 2 + 0.5) * rcvdCubeSize;
+                  const expectedWorldZ = (zoneY * rcvdZoneSize) + (z - rcvdDivisions / 2 + 0.5) * rcvdCubeSize;
+                  return Math.abs(mesh.position.x - expectedWorldX) < rcvdCubeSize * 0.5 &&
+                         Math.abs(mesh.position.z - expectedWorldZ) < rcvdCubeSize * 0.5;
+              })()
             );
             
-            if (target) {
-              scene.remove(target);
-              removeCubeFromZone(data.zoneX, data.zoneY, target, false);
+            if (cubeMeshToRemove) {
+              // Pass the actual mesh to the callback, which will also handle zoneManager update
+              removeCubeFromSceneCallback(cubeMeshToRemove, zoneX, zoneY);
+            } else {
+              // If mesh not found, still try to remove from data model as a fallback
+              zoneManager.removeCubeDataFromZone(zoneX, zoneY, { gridX: x, gridY: y, gridZ: z });
             }
           }
         });
         
       } else {
         console.warn('[Socket.IO] window.io가 존재하지 않습니다.');
+        if (zoneManager) zoneManager.setNetworkContext(spaceId, false, null);
       }
     } catch (e) {
       console.warn('[Socket.IO] 실시간 서버 연결 실패, 서버리스 모드로 동작합니다.');
       socket = null;
       isRealtimeAvailable = false;
+      if (zoneManager) zoneManager.setNetworkContext(spaceId, false, null);
     }
   }
   
   setupSocketIO();
   
-  // Zone 배열에서 씬에 없는 큐브들 정리
-  function cleanupZoneArrays() {
-    Object.keys(zoneData).forEach(zoneKey => {
-      const zoneCubes = zoneData[zoneKey];
-      zoneData[zoneKey] = zoneCubes.filter(cube => scene.children.includes(cube));
-    });
-    updateFpsObstacles();
-  }
-  // ---- End Zone System ----
-  
   console.log('워크스페이스 ID:', spaceId);
-  
-  let hoveredCube = null;
-  let hoveredFaceNormal = null;
-  let highlightEdge = null;
-  const container = document.getElementById('container');
-  const colorInput = document.getElementById('cubeColor');
 
+  // Callbacks for cubeInteraction.js (already defined above)
+  
+  const colorInput = document.getElementById('cubeColor');
   let cubeColor = colorInput.value;
 
-  // 자동 저장 트리거 함수 (Zone 시스템용)
   function autoSaveCurrentSpace() {
-    const allSceneData = {};
+    if (!zoneManager) return;
+
+    const allZoneDataFromManager = zoneManager.getZoneData();
+    const currentZoneCoords = zoneManager.getCurrentZoneCoordinates();
     
-    // 모든 Zone의 데이터를 저장
-    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
-      if (zoneCubes.length > 0) {
-        allSceneData[zoneKey] = zoneCubes.map(cube => ({
-          x: cube.position.x,
-          y: cube.position.y,
-          z: cube.position.z,
-          color: `#${cube.material.color.getHexString()}`
-        }));
-      }
+    const sceneDataToSave = {};
+    for (const zoneKey in allZoneDataFromManager) {
+      if (zoneKey === 'currentZone') continue;
+      sceneDataToSave[zoneKey] = allZoneDataFromManager[zoneKey].map(cubeData => ({
+        x: cubeData.x,
+        y: cubeData.y,
+        z: cubeData.z,
+        color: cubeData.color,
+        gridX: cubeData.gridX,
+        gridY: cubeData.gridY,
+        gridZ: cubeData.gridZ,
+      }));
     }
+    sceneDataToSave.currentZone = currentZoneCoords;
     
-    // 현재 Zone 정보도 저장
-    allSceneData.currentZone = { x: currentZoneX, y: currentZoneY };
-    
-    saveSpace(spaceId, allSceneData);
-    // 자동저장 토스트 메시지 제거
+    saveSpace(spaceId, sceneDataToSave);
   }
 
-  // Mouse drag variables
-  let isDragging = false;
-  let previousMousePosition = { x: 0, y: 0 };
-  let initialMousePosition = { x: 0, y: 0 };
-  const dragThreshold = 5; // pixels
-  let wasDraggingJustNow = false; // Flag to differentiate click from drag
-  let isDraggingCube = false; // 큐브 드래그 모드 플래그
-  let dragStartCube = null; // 드래그 시작 큐브
-  let dragStartFace = null; // 드래그 시작 면
+  // Mouse drag variables are now managed by cubeInteraction.js
+  // let isDragging = false; // Removed
+  // let previousMousePosition = { x: 0, y: 0 }; // Removed
+  // let initialMousePosition = { x: 0, y: 0 }; // Removed
+  // const dragThreshold = 5; // Removed
+  // let wasDraggingJustNow = false; // Removed
+  // let isDraggingCube = false; // Removed
+  // let dragStartCube = null; // Removed
+  // let dragStartFace = null; // Removed
 
-  // ---- 3D 환경 구성: 씬, 카메라, 렌더러, 플레이어 본체, FPSControls ----
-  // 1. THREE.Scene 생성
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf0f0f0);
-  console.log('씬 생성:', scene);
+  // ---- 3D 환경 구성 is now handled by core3d.js ----
 
-  // 2. THREE.PerspectiveCamera 생성
-  //    (FPS/편집모드 전환에 따라 위치와 계층 구조가 결정됨)
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  console.log('카메라 생성:', camera);
-
-  // 3. THREE.WebGLRenderer 생성 및 DOM에 추가
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  container.appendChild(renderer.domElement);
-  console.log('렌더러 생성 및 추가:', renderer);
-
-  // 4. 플레이어 본체(THREE.Object3D) 생성 및 씬에 추가
-  //    FPS 모드에서 카메라의 부모가 됨
-  //    (이 구조를 통해 FPSControls가 위치/회전을 일관되게 제어)
-  const playerObject = new THREE.Object3D();
-  scene.add(playerObject);
-
-  // 5. 카메라 위치(눈높이) 설정 및 playerObject의 자식으로 추가
-  //    (중복 add 방지, 계층 구조 명확화)
-  camera.position.set(0, 1.6, 0); // baseY = 1.6 (눈높이)
-  playerObject.add(camera);
-
-  // 6. FPSControls 인스턴스 생성 (playerObject, camera, renderer.domElement 순)
-  //    FPS 모드에서는 playerObject가 실제 이동하며, camera는 그 자식
+  // FPSControls 인스턴스 생성 (playerObject, camera, renderer.domElement 순)
+  // playerObject, camera, renderer are now from core3d.js
   fpsControls = new FPSControls(playerObject, camera, renderer.domElement);
 
   // FPS 모드 해제 시(편집모드 복귀) 카메라를 위로 올리고 아래를 비스듬히 바라보게 리셋
@@ -503,424 +398,58 @@ function initApp() {
 
   // FPSControls에 현재 Zone 큐브 전달
   function updateFpsObstacles() {
-    if (fpsControls) {
-      fpsControls.setObstacles(Object.values(zoneData).flat());
-    }
-  }
-  updateFpsObstacles();
+    if (fpsControls && zoneManager) { // Check if zoneManager is initialized
+      const allManagedZoneData = zoneManager.getZoneData(); // This returns data, not meshes
+      let physicsCubeMeshes = [];
+      
+      // Iterate through scene children to find meshes that correspond to cube data in zoneManager
+      const sceneMeshes = scene.children.filter(obj => obj.isMesh && obj.gridX !== undefined);
 
-  // Zone별 그리드 관리 시스템
-  const zoneGrids = new Map();
-  const zoneFloors = new Map(); // 바닥 면 저장
-  
-  function createZoneGrid(zoneX, zoneY, isActive = false) {
-    // 그리드 선은 항상 회색
-    const gridHelper = new THREE.GridHelper(ZONE_SIZE, ZONE_DIVISIONS, 0x888888, 0x888888);
-    gridHelper.position.set(zoneX * ZONE_SIZE, 0, zoneY * ZONE_SIZE);
-    scene.add(gridHelper);
-    
-    // 바닥 면 생성 (활성 Zone만)
-    let floorPlane = null;
-    if (isActive) {
-      const floorGeometry = new THREE.PlaneGeometry(ZONE_SIZE, ZONE_SIZE);
-      const floorMaterial = new THREE.MeshBasicMaterial({ 
-        color: 0x4f46e5, 
-        transparent: true, 
-        opacity: 0.1,
-        side: THREE.DoubleSide
-      });
-      floorPlane = new THREE.Mesh(floorGeometry, floorMaterial);
-      floorPlane.rotation.x = -Math.PI / 2; // 수평으로 회전
-      floorPlane.position.set(zoneX * ZONE_SIZE, 0.01, zoneY * ZONE_SIZE); // 약간 위에
-      scene.add(floorPlane);
-    }
-    
-    const zoneKey = getZoneKey(zoneX, zoneY);
-    zoneGrids.set(zoneKey, gridHelper);
-    if (floorPlane) {
-      zoneFloors.set(zoneKey, floorPlane);
-    }
-    
-    return gridHelper;
-  }
-  
-  function updateZoneFloors() {
-    // 모든 기존 바닥 면 제거
-    for (const [zoneKey, floor] of zoneFloors) {
-      scene.remove(floor);
-    }
-    zoneFloors.clear();
-    
-    // 현재 활성 Zone에만 바닥 면 추가
-    const activeZoneKey = getCurrentZoneKey();
-    const floorGeometry = new THREE.PlaneGeometry(ZONE_SIZE, ZONE_SIZE);
-    const floorMaterial = new THREE.MeshBasicMaterial({ 
-      color: 0x4f46e5, 
-      transparent: true, 
-      opacity: 0.1,
-      side: THREE.DoubleSide
-    });
-    const floorPlane = new THREE.Mesh(floorGeometry, floorMaterial);
-    floorPlane.rotation.x = -Math.PI / 2;
-    floorPlane.position.set(currentZoneX * ZONE_SIZE, 0.01, currentZoneY * ZONE_SIZE);
-    scene.add(floorPlane);
-    
-    zoneFloors.set(activeZoneKey, floorPlane);
-  }
-  
-  // 현재 Zone 그리드 생성 (활성)
-  createZoneGrid(currentZoneX, currentZoneY, true);
-  
-  // 인접 Zone들 그리드도 미리 생성 (비활성)
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0) continue;
-      createZoneGrid(currentZoneX + dx, currentZoneY + dy, false);
+      for (const zoneKey in allManagedZoneData) {
+        if (zoneKey === "currentZone") continue;
+        const cubeDataInZone = allManagedZoneData[zoneKey];
+        cubeDataInZone.forEach(data => {
+          const correspondingMesh = sceneMeshes.find(mesh =>
+            mesh.gridX === data.gridX &&
+            mesh.gridY === data.gridY &&
+            mesh.gridZ === data.gridZ &&
+            // Approximate position check to ensure it's the right cube in the right zone,
+            // as grid coords might repeat across zones if not careful with global identification
+            Math.abs(mesh.position.x - data.x) < 0.01 &&
+            Math.abs(mesh.position.y - data.y) < 0.01 &&
+            Math.abs(mesh.position.z - data.z) < 0.01
+          );
+          if (correspondingMesh) {
+            physicsCubeMeshes.push(correspondingMesh);
+          }
+        });
+      }
+      fpsControls.setObstacles(physicsCubeMeshes);
     }
   }
-  
-  console.log('Zone 그리드들 생성 완료');
+  updateFpsObstacles(); // Initial call
 
-  // Zone 텍스트 표시 시스템
-  const zoneTexts = new Map();
-  
-  function createZoneText(zoneX, zoneY) {
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    canvas.width = 512;
-    canvas.height = 512;
-    
-    // 반투명 회색 텍스트
-    context.fillStyle = 'rgba(100, 100, 100, 0.3)';
-    context.font = 'bold 120px Arial';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    
-    const zoneText = `${zoneX},${zoneY}`;
-    context.fillText(zoneText, canvas.width / 2, canvas.height / 2);
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-    const sprite = new THREE.Sprite(material);
-    
-    // Zone 중앙 바닥에 위치
-    const worldX = zoneX * ZONE_SIZE;
-    const worldZ = zoneY * ZONE_SIZE;
-    sprite.position.set(worldX, 0.1, worldZ);
-    sprite.scale.set(ZONE_SIZE * 0.8, ZONE_SIZE * 0.8, 1);
-    
-    scene.add(sprite);
-    zoneTexts.set(getZoneKey(zoneX, zoneY), sprite);
-    
-    return sprite;
-  }
-  
-  // 현재 Zone 텍스트 생성
-  createZoneText(currentZoneX, currentZoneY);
-  
-  // 인접 Zone들도 미리 생성
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0) continue;
-      createZoneText(currentZoneX + dx, currentZoneY + dy);
-    }
-  }
+  // Zone visual management (grids, texts, floors) is now handled by zoneManager.
+  // Old functions: createZoneGrid, updateZoneFloors, createZoneText are removed.
+  // Initial grid/text creation is done in initZoneManager.
 
-  // 조명
-  const light = new THREE.DirectionalLight(0xffffff, 0.8);
-  light.position.set(10, 20, 10);
-  scene.add(light);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-  console.log('조명 추가');
+  console.log('Zone setup is now delegated to ZoneManager.');
 
   // 큐브 쌓기
-  const cubeSize = ZONE_SIZE / ZONE_DIVISIONS;
-  console.log('큐브 크기:', cubeSize);
+  // const cubeSize = ZONE_SIZE / ZONE_DIVISIONS; // Will be replaced by zoneManager.getCubeSize()
+  // console.log('큐브 크기:', cubeSize); // Will be updated
 
-  function addCube(x, y, z, color, byRemote = false) {
-    // 현재 Zone에서만 편집 가능
-    if (x < 0 || x >= ZONE_DIVISIONS || z < 0 || z >= ZONE_DIVISIONS) {
-      return;
-    }
-    
-    // 중복 검사
-    const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    if (currentZoneCubes.some(cube => cube.gridX === x && cube.gridY === y && cube.gridZ === z)) {
-      return;
-    }
+  // Old addCube function is now removed. Its logic is primarily in addCubeToSceneCallback.
 
-    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-    const material = new THREE.MeshLambertMaterial({ color });
-    const cube = new THREE.Mesh(geometry, material);
-    
-    // Zone 좌표계 적용
-    const worldX = (currentZoneX * ZONE_SIZE) + (x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-    const worldZ = (currentZoneY * ZONE_SIZE) + (z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-    
-    cube.position.set(
-      worldX,
-      (y + 0.5) * cubeSize,
-      worldZ
-    );
-    
-    // grid 좌표를 cube 객체에 저장
-    cube.gridX = x;
-    cube.gridY = y;
-    cube.gridZ = z;
-    cube._byRemote = byRemote;
-    
-    scene.add(cube);
-    addCubeToZone(currentZoneX, currentZoneY, cube);
+  // The old click listener (the one that was using dummy variables like currentZoneX globally) is now ACTUALLY removed.
+  // Its functionality will be handled by cubeInteraction.js.
 
-    // 실시간 동기화: 원격 추가가 아닌 경우에만 전송
-    if (!byRemote && isRealtimeAvailable && socket) {
-      const data = {
-        x, y, z, color,
-        zoneX: currentZoneX,
-        zoneY: currentZoneY,
-        spaceId
-      };
-      socket.emit('add cube', data);
-    }
-    
-    autoSaveCurrentSpace();
-  }
-
-  // 마우스 클릭으로 큐브 추가 (큐브 위 또는 바닥)
-  renderer.domElement.addEventListener('click', (event) => {
-    // FPS 모드일 때는 편집 기능 건너뜀
-    if (fpsControls && fpsControls.enabled) return;
-    
-    if (wasDraggingJustNow) {
-      wasDraggingJustNow = false;
-      return;
-    }
-
-    const rect = renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
-
-    // hover된 큐브와 면이 있으면 그 정보를 사용 (공중 연결)
-    if (hoveredCube && hoveredFaceNormal) {
-      // 현재 Zone 기준으로 좌표 변환
-      const localX = hoveredCube.position.x - (currentZoneX * ZONE_SIZE);
-      const localZ = hoveredCube.position.z - (currentZoneY * ZONE_SIZE);
-      
-      const gridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-      const gridY = Math.round((hoveredCube.position.y / cubeSize) - 0.5);
-      const gridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-      
-      const nextX = gridX + Math.round(hoveredFaceNormal.x);
-      const nextY = gridY + Math.round(hoveredFaceNormal.y);
-      const nextZ = gridZ + Math.round(hoveredFaceNormal.z);
-      
-      if (
-        nextX >= 0 && nextX < ZONE_DIVISIONS &&
-        nextY >= 0 &&
-        nextZ >= 0 && nextZ < ZONE_DIVISIONS
-      ) {
-        addCube(nextX, nextY, nextZ, cubeColor);
-      }
-      return;
-    }
-
-    // 현재 Zone의 큐브들만 검사하여 큐브 클릭 여부 확인
-    const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const cubeIntersects = raycaster.intersectObjects(currentZoneCubes);
-    
-    // 큐브를 클릭한 경우는 이미 hover에서 처리되므로, 바닥 클릭만 처리
-    if (cubeIntersects.length === 0) {
-      // 바닥 클릭 - 빈 공간이면 바닥부터 쌓기
-      const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
-      if (intersect) {
-        // 현재 Zone 기준으로 좌표 변환
-        const localX = intersect.x - (currentZoneX * ZONE_SIZE);
-        const localZ = intersect.z - (currentZoneY * ZONE_SIZE);
-        
-        let x = Math.floor(localX / cubeSize + ZONE_DIVISIONS / 2);
-        let z = Math.floor(localZ / cubeSize + ZONE_DIVISIONS / 2);
-        
-        if (x >= 0 && x < ZONE_DIVISIONS && z >= 0 && z < ZONE_DIVISIONS) {
-          // 해당 x,z 위치에서 가장 낮은 빈 공간 찾기
-          const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-          let y = 0;
-          while (currentZoneCubes.some(cube =>
-            Math.abs(cube.position.x - ((currentZoneX * ZONE_SIZE) + (x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize)) < 0.01 &&
-            Math.abs(cube.position.y - ((y + 0.5) * cubeSize)) < 0.01 &&
-            Math.abs(cube.position.z - ((currentZoneY * ZONE_SIZE) + (z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize)) < 0.01
-          )) {
-            y++;
-          }
-          addCube(x, y, z, cubeColor);
-        }
-      }
-    }
-  });
-
-  // Mouse listeners for drag, highlight
-  renderer.domElement.addEventListener('mousedown', (event) => {
-    // FPS 모드일 때는 편집 기능 건너뜀
-    if (fpsControls && fpsControls.enabled) return;
-    
-    if (event.button === 2) { // Right mouse button for context menu
-        return;
-    }
-    isDragging = true;
-    initialMousePosition.x = event.clientX;
-    initialMousePosition.y = event.clientY;
-    previousMousePosition.x = event.clientX;
-    previousMousePosition.y = event.clientY;
-    wasDraggingJustNow = false;
-    
-    // 큐브가 하이라이트된 상태면 큐브 드래그 모드로 설정
-    if (hoveredCube && hoveredFaceNormal) {
-      isDraggingCube = true;
-      dragStartCube = hoveredCube;
-      dragStartFace = hoveredFaceNormal.clone();
-    } else {
-      isDraggingCube = false;
-      dragStartCube = null;
-      dragStartFace = null;
-    }
-  });
-
-  // 마우스가 3D 영역을 벗어나면 드래깅 중단
-  renderer.domElement.addEventListener('mouseleave', () => {
-    if (isDragging) {
-      isDragging = false;
-      isDraggingCube = false;
-      dragStartCube = null;
-      dragStartFace = null;
-      console.log('마우스가 3D 영역을 벗어나서 드래깅 중단');
-    }
-  });
-
-  renderer.domElement.addEventListener('mousemove', (event) => {
-    // FPS 모드일 때는 편집 기능 건너뜀
-    if (fpsControls && fpsControls.enabled) return;
-    
-    hoveredCube = null;
-    hoveredFaceNormal = null;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const currentMouse = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-
-    if (isDragging) {
-        const deltaX = event.clientX - previousMousePosition.x;
-        const deltaY = event.clientY - previousMousePosition.y;
-
-        previousMousePosition.x = event.clientX;
-        previousMousePosition.y = event.clientY;
-
-        if (isDraggingCube && dragStartCube && dragStartFace) {
-          // 큐브 드래그 모드: 직선 경로에 큐브 생성
-          const dragDistance = Math.sqrt(
-            Math.pow(event.clientX - initialMousePosition.x, 2) + 
-            Math.pow(event.clientY - initialMousePosition.y, 2)
-          );
-          
-          if (dragDistance > dragThreshold) {
-            // 드래그 방향에 따른 큐브 생성 개수 계산 (거리에 비례)
-            const cubeCount = Math.floor(dragDistance / 20); // 20px마다 1개 큐브
-            
-            if (cubeCount > 0) {
-              // 시작 큐브 위치 계산
-              const localX = dragStartCube.position.x - (currentZoneX * ZONE_SIZE);
-              const localZ = dragStartCube.position.z - (currentZoneY * ZONE_SIZE);
-              
-              const startGridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-              const startGridY = Math.round((dragStartCube.position.y / cubeSize) - 0.5);
-              const startGridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-              
-              // 면 방향으로 직선 경로에 큐브들 생성
-              for (let i = 1; i <= cubeCount; i++) {
-                const nextX = startGridX + Math.round(dragStartFace.x) * i;
-                const nextY = startGridY + Math.round(dragStartFace.y) * i;
-                const nextZ = startGridZ + Math.round(dragStartFace.z) * i;
-                
-                if (
-                  nextX >= 0 && nextX < ZONE_DIVISIONS &&
-                  nextY >= 0 &&
-                  nextZ >= 0 && nextZ < ZONE_DIVISIONS
-                ) {
-                  addCube(nextX, nextY, nextZ, cubeColor);
-                }
-              }
-              
-              wasDraggingJustNow = true;
-            }
-          }
-        } else {
-          // 일반 카메라 드래그 모드: 회전
-          if (Math.abs(deltaX) > 0.1) {
-              // 좌우 드래그: 카메라 좌우 회전
-              const yawAngle = -deltaX * 0.006;
-              const yawQuaternion = new THREE.Quaternion();
-              yawQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle);
-              camera.quaternion.multiplyQuaternions(yawQuaternion, camera.quaternion);
-          }
-
-          if (Math.abs(deltaY) > 0.1) {
-              // 상하 드래그: 카메라 상하 회전 (위아래 보기)
-              const pitchAngle = -deltaY * 0.006;
-              const cameraRight = new THREE.Vector3(1, 0, 0);
-              cameraRight.applyQuaternion(camera.quaternion);
-              
-              const currentDirection = new THREE.Vector3(0, 0, -1);
-              currentDirection.applyQuaternion(camera.quaternion);
-              const currentPitch = Math.asin(currentDirection.y);
-              const newPitch = currentPitch + pitchAngle;
-              const maxPitch = Math.PI / 2 * 0.85;
-              
-              if (Math.abs(newPitch) < maxPitch) {
-                  const pitchQuaternion = new THREE.Quaternion();
-                  pitchQuaternion.setFromAxisAngle(cameraRight, pitchAngle);
-                  camera.quaternion.multiplyQuaternions(pitchQuaternion, camera.quaternion);
-              }
-          }
-          
-          camera.quaternion.normalize();
-        }
-    } else {
-        // 현재 Zone의 큐브들만 하이라이트
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(currentMouse, camera);
-        const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-        
-        // 씬에서 실제로 존재하는 큐브들만 필터링
-        const validZoneCubes = currentZoneCubes.filter(cube => scene.children.includes(cube));
-        
-        const cubeIntersects = raycaster.intersectObjects(validZoneCubes);
-
-        if (highlightEdge) {
-            scene.remove(highlightEdge);
-            highlightEdge = null;
-        }
-        
-        // hover 상태 초기화
-        hoveredCube = null;
-        hoveredFaceNormal = null;
-        
-        if (cubeIntersects.length > 0) {
-            const target = cubeIntersects[0].object;
-            const faceNormal = cubeIntersects[0].face.normal;
-            hoveredCube = target;
-            hoveredFaceNormal = faceNormal.clone();
-            const edgeGeom = new THREE.EdgesGeometry(target.geometry);
-            const edgeMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 });
-            highlightEdge = new THREE.LineSegments(edgeGeom, edgeMat);
-            highlightEdge.position.copy(target.position);
-            scene.add(highlightEdge);
-        }
-    }
-  });
+  // Mouse listeners (mousedown, mouseleave, mousemove) removed.
+  // The mousedown listener that was here has been removed.
+  // Click listener (the one that was using dummy variables) is now removed.
+  // The ACTUAL click listener that was present is now removed.
+  // All listeners prior to mouseup should now be gone.
+  // CLICK LISTENER REMOVED (attempt)
 
   renderer.domElement.addEventListener('mouseup', (event) => {
     // FPS 모드일 때는 편집 기능 건너뜀
@@ -1001,40 +530,76 @@ function initApp() {
       case 'ArrowLeft':
       case 'ArrowRight':
         e.preventDefault();
+        const { x: czx, y: czy } = zoneManager.getCurrentZoneCoordinates(); // Get current zone from manager
         
-        // 현재 카메라가 보는 방향을 기준으로 Zone 이동 계산
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
-        
-        // 카메라의 오른쪽 방향 벡터 계산
+        cameraDirection.y = 0; // Keep movement horizontal
+        cameraDirection.normalize();
+
         const cameraRight = new THREE.Vector3();
-        cameraRight.crossVectors(cameraDirection, camera.up).normalize();
+        cameraRight.crossVectors(camera.up, cameraDirection).normalize(); // Right vector based on horizontal direction
         
-        let deltaX = 0, deltaY = 0;
+        let deltaZoneX = 0;
+        let deltaZoneY = 0; // This corresponds to depth (Z axis in 3D)
         
+        // Determine dominant camera direction component for more intuitive mapping
+        const absCamX = Math.abs(cameraDirection.x);
+        const absCamZ = Math.abs(cameraDirection.z);
+
         if (e.key === 'ArrowUp') {
-          // 현재 보는 방향으로 이동
-          deltaX = Math.round(cameraDirection.x);
-          deltaY = Math.round(cameraDirection.z);
+            if (absCamX > absCamZ) { // Moving more along X
+                deltaZoneX = Math.sign(cameraDirection.x);
+            } else { // Moving more along Z
+                deltaZoneY = Math.sign(cameraDirection.z);
+            }
         } else if (e.key === 'ArrowDown') {
-          // 현재 보는 방향 반대로 이동
-          deltaX = -Math.round(cameraDirection.x);
-          deltaY = -Math.round(cameraDirection.z);
-        } else if (e.key === 'ArrowLeft') {
-          // 현재 보는 방향 기준 왼쪽으로 이동
-          deltaX = -Math.round(cameraRight.x);
-          deltaY = -Math.round(cameraRight.z);
-        } else if (e.key === 'ArrowRight') {
-          // 현재 보는 방향 기준 오른쪽으로 이동
-          deltaX = Math.round(cameraRight.x);
-          deltaY = Math.round(cameraRight.z);
+            if (absCamX > absCamZ) {
+                deltaZoneX = -Math.sign(cameraDirection.x);
+            } else {
+                deltaZoneY = -Math.sign(cameraDirection.z);
+            }
+        } else if (e.key === 'ArrowLeft') { // Strafe left relative to camera
+            if (absCamX > absCamZ) { // If camera is mainly along X, strafing changes Z
+                 deltaZoneY = Math.sign(cameraRight.z); // cameraRight.z might be negative for "left" depending on orientation
+            } else { // If camera is mainly along Z, strafing changes X
+                 deltaZoneX = Math.sign(cameraRight.x);
+            }
+             // Correcting strafe direction based on typical FPS controls (strafe left = negative right vector component)
+            if (deltaZoneX === 0 && deltaZoneY !== 0) { // Moving along Z axis
+                deltaZoneY = -new THREE.Vector3().crossVectors(camera.up, cameraDirection.clone().setX(0).normalize()).z * Math.sign(deltaZoneY);
+            } else if (deltaZoneY === 0 && deltaZoneX !== 0) { // Moving along X axis
+                deltaZoneX = -new THREE.Vector3().crossVectors(camera.up, cameraDirection.clone().setZ(0).normalize()).x * Math.sign(deltaZoneX);
+            }
+
+
+        } else if (e.key === 'ArrowRight') { // Strafe right relative to camera
+            if (absCamX > absCamZ) {
+                 deltaZoneY = -Math.sign(cameraRight.z);
+            } else {
+                 deltaZoneX = -Math.sign(cameraRight.x);
+            }
+            // Correcting strafe direction
+             if (deltaZoneX === 0 && deltaZoneY !== 0) {
+                deltaZoneY = new THREE.Vector3().crossVectors(camera.up, cameraDirection.clone().setX(0).normalize()).z * Math.sign(deltaZoneY);
+            } else if (deltaZoneY === 0 && deltaZoneX !== 0) {
+                deltaZoneX = new THREE.Vector3().crossVectors(camera.up, cameraDirection.clone().setZ(0).normalize()).x * Math.sign(deltaZoneX);
+            }
         }
+        // Ensure only one delta is non-zero for cardinal direction snapping
+        if (Math.abs(deltaZoneX) > Math.abs(deltaZoneY)) deltaZoneY = 0; else deltaZoneX = 0;
+
+        // Normalize to 1 or -1 or 0
+        deltaZoneX = Math.sign(deltaZoneX);
+        deltaZoneY = Math.sign(deltaZoneY);
+
+        const newZoneX = czx + deltaZoneX;
+        const newZoneY = czy + deltaZoneY; // czy is Z-depth for zoneManager
         
-        const newZoneX = currentZoneX + deltaX;
-        const newZoneY = currentZoneY + deltaY;
-        
-        console.log(`카메라 방향 기준 Zone 이동: (${deltaX}, ${deltaY}) → Zone (${newZoneX}, ${newZoneY})`);
-        switchToZone(newZoneX, newZoneY);
+        if (deltaZoneX !== 0 || deltaZoneY !== 0) { // Only switch if there's a change
+          console.log(`카메라 방향 기준 Zone 이동 요청: (${deltaZoneX}, ${deltaZoneY}) → Zone (${newZoneX}, ${newZoneY})`);
+          triggerZoneSwitch(newZoneX, newZoneY); // This function will handle camera animation & call zoneManager
+        }
         return;
     }
     
@@ -1167,174 +732,105 @@ function initApp() {
     return moved;
   }
 
-  // Zone 전환 함수 (부드러운 슬라이딩 애니메이션)
-  function switchToZone(newZoneX, newZoneY) {
-  // Zone 이동 후 장애물 큐브 갱신
-    if (newZoneX === currentZoneX && newZoneY === currentZoneY) return;
-    
-    console.log(`Zone 전환: (${currentZoneX},${currentZoneY}) → (${newZoneX},${newZoneY})`);
-    
-    // Zone 이동량 계산
-    const deltaX = newZoneX - currentZoneX;
-    const deltaY = newZoneY - currentZoneY;
-    
-    // 시작 위치와 목표 위치 설정
-    const startX = camera.position.x;
-    const startZ = camera.position.z;
-    const targetX = startX + (deltaX * ZONE_SIZE);
-    const targetZ = startZ + (deltaY * ZONE_SIZE);
-    
-    // 애니메이션 변수
-    let animationProgress = 0;
-    const animationDuration = 800; // 800ms
-    const startTime = performance.now();
-    
-    // 부드러운 슬라이딩 애니메이션
-    function animateZoneTransition(currentTime) {
-      animationProgress = Math.min((currentTime - startTime) / animationDuration, 1);
+  // New function to handle zone switching and camera animation
+  function triggerZoneSwitch(newZoneX, newZoneY) {
+    const oldCoords = zoneManager.getCurrentZoneCoordinates();
+    // zoneManager.switchToZone handles updating currentZoneX/Y, grids, texts, floors, and calling updateFpsObstaclesCb & showToastCb
+    // It returns true if the zone actually changed.
+    // The camera is passed as an argument to zoneManager.switchToZone for potential future use, but not used by ZM for animation currently.
+    const zoneActuallyChanged = zoneManager.switchToZone(newZoneX, newZoneY, camera);
 
-      if (animationProgress < 1) {
-        // 카메라 위치 보간
-        camera.position.x = startX + (targetX - startX) * animationProgress;
-        camera.position.z = startZ + (targetZ - startZ) * animationProgress;
-        requestAnimationFrame(animateZoneTransition);
-      } else {
-        // 애니메이션 완료 시 Zone 정보 업데이트
-        currentZoneX = newZoneX;
-        currentZoneY = newZoneY;
-        updateFpsObstacles();
+    if (zoneActuallyChanged) {
+      console.log(`Animating camera for Zone Switch: (${oldCoords.x},${oldCoords.y}) → (${newZoneX},${newZoneY})`);
+
+      const zoneSize = zoneManager.getZoneSize(); // Get zone size from manager
+      const deltaX = newZoneX - oldCoords.x;
+      const deltaY = newZoneY - oldCoords.y; // zoneManager's y is 3D Z
+
+      const startX = camera.position.x;
+      const startZ = camera.position.z;
+      // Target camera position to be the center of the new zone, possibly with an offset for better view.
+      // For simplicity, we'll aim for the same relative position within the new zone as it was in the old.
+      const targetX = startX + (deltaX * zoneSize);
+      const targetZ = startZ + (deltaY * zoneSize);
+
+      let animationProgress = 0;
+      const animationDuration = 300; // ms - reduced duration for quicker feel
+      const startTime = performance.now();
+
+      function animateZoneTransition(currentTime) {
+        animationProgress = Math.min((currentTime - startTime) / animationDuration, 1);
+        const easeOutQuart = 1 - Math.pow(1 - animationProgress, 4);
+
+        camera.position.x = startX + (targetX - startX) * easeOutQuart;
+        camera.position.z = startZ + (targetZ - startZ) * easeOutQuart;
         
-        // 새 Zone 그리드 생성 (없다면) - 비활성으로 생성
-        const zoneKey = getCurrentZoneKey();
-        if (!zoneGrids.has(zoneKey)) {
-          createZoneGrid(currentZoneX, currentZoneY, false);
+        if (animationProgress < 1) {
+          requestAnimationFrame(animateZoneTransition);
+        } else {
+          camera.position.x = targetX;
+          camera.position.z = targetZ;
+          // updateFpsObstacles is already called by zoneManager.switchToZone's callback
+          // showToast is also called by zoneManager.switchToZone's callback
         }
-        
-        // 새 Zone 텍스트 생성 (없다면)
-        if (!zoneTexts.has(zoneKey)) {
-          createZoneText(currentZoneX, currentZoneY);
-        }
-        
-        // 인접 Zone들도 생성 - 모두 비활성으로
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            const adjacentX = currentZoneX + dx;
-            const adjacentY = currentZoneY + dy;
-            const adjacentKey = getZoneKey(adjacentX, adjacentY);
-            
-            // 그리드 생성
-            if (!zoneGrids.has(adjacentKey)) {
-              createZoneGrid(adjacentX, adjacentY, false);
-            }
-            
-            // 텍스트 생성
-            if (!zoneTexts.has(adjacentKey)) {
-              createZoneText(adjacentX, adjacentY);
-            }
-          }
-        }
-        
-        // 바닥 면 업데이트 (현재 Zone만 활성)
-        updateZoneFloors();
-        
-        showToast(`Zone (${currentZoneX}, ${currentZoneY})로 이동`);
       }
+      requestAnimationFrame(animateZoneTransition);
     }
-    
-    // 애니메이션 시작
-    requestAnimationFrame(animateZoneTransition);
   }
 
-  // 반응형
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+  // 반응형 resize handler is now in core3d.js
 
-  // 씬 데이터로부터 로드하는 함수
-  function loadSceneFromData(loadedSceneData) {
-    // 기존 큐브들 모두 제거
-    clearScene();
-    
-    if (loadedSceneData.currentZone) {
-      // 새로운 Zone 시스템 데이터
-      console.log('Zone 시스템 데이터 로드');
+  // 씬 데이터로부터 로드하는 함수 (Refactored for zoneManager)
+  function loadSceneFromData(loadedData) {
+    if (!zoneManager) return;
+
+    clearSceneMeshes(); // Clear existing cube meshes from the scene
+
+    // Callback for zoneManager to add cube meshes to the scene
+    const addCubeMeshToSceneCallback = (cubeData) => {
+      const currentCubeSize = zoneManager.getCubeSize(); // Get current cube size
+      const geometry = new THREE.BoxGeometry(currentCubeSize, currentCubeSize, currentCubeSize);
+      const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
+      const cubeMesh = new THREE.Mesh(geometry, material);
       
-      // 현재 Zone 위치 복원
-      currentZoneX = loadedSceneData.currentZone.x || 0;
-      currentZoneY = loadedSceneData.currentZone.y || 0;
+      // Position is already world position from cubeData stored by zoneManager or from file
+      cubeMesh.position.set(cubeData.x, cubeData.y, cubeData.z);
       
-      // 각 Zone의 큐브들 복원
-      for (const [zoneKey, cubeDataList] of Object.entries(loadedSceneData)) {
-        if (zoneKey === 'currentZone') continue;
-        
-        const [zoneX, zoneY] = zoneKey.split(',').map(Number);
-        
-        cubeDataList.forEach(cubeData => {
-          // 월드 좌표로 직접 큐브 생성
-          const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-          const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
-          const cube = new THREE.Mesh(geometry, material);
-          cube.position.set(cubeData.x, cubeData.y, cubeData.z);
-          
-          // gridX, gridY, gridZ 계산해서 설정
-          const localX = cubeData.x - (zoneX * ZONE_SIZE);
-          const localZ = cubeData.z - (zoneY * ZONE_SIZE);
-          cube.gridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-          cube.gridY = Math.round((cubeData.y / cubeSize) - 0.5);
-          cube.gridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-          
-          scene.add(cube);
-          
-          // Zone에 추가
-          addCubeToZone(zoneX, zoneY, cube);
-        });
-      }
+      // Assign grid coordinates to the mesh for identification
+      cubeMesh.gridX = cubeData.gridX;
+      cubeMesh.gridY = cubeData.gridY;
+      cubeMesh.gridZ = cubeData.gridZ;
       
-      // 복원된 Zone으로 이동 및 바닥 면 업데이트
-      if (currentZoneX !== 0 || currentZoneY !== 0) {
-        // 카메라를 복원된 Zone 위치로 이동
-        const targetX = currentZoneX * ZONE_SIZE;
-        const targetZ = currentZoneY * ZONE_SIZE;
-        camera.position.x = targetX;
-        camera.position.z = targetZ + 20;
-        camera.lookAt(targetX, 0, targetZ);
-      }
-      
-      // 바닥 면 업데이트 (복원된 Zone이 활성화되도록)
-      updateZoneFloors();
-      
-    } else if (Array.isArray(loadedSceneData)) {
-      // 기존 배열 형식 데이터 (호환성)
-      console.log('기존 배열 데이터 로드');
-      loadedSceneData.forEach(cubeData => {
-        // Zone 0,0에 로드
-        const localX = cubeData.x;
-        const localZ = cubeData.z;
-        const gridX = (localX / cubeSize) + ZONE_DIVISIONS / 2 - 0.5;
-        const gridY = (cubeData.y / cubeSize) - 0.5;
-        const gridZ = (localZ / cubeSize) + ZONE_DIVISIONS / 2 - 0.5;
-        
-        addCube(Math.round(gridX), Math.round(gridY), Math.round(gridZ), cubeData.color);
-      });
-    }
-    
-    // ---- 초기 카메라 위치 설정 (데이터 로드 후) ----
-    if (currentZoneX === 0 && currentZoneY === 0) {
-      // 첫 접속이거나 Zone (0,0)인 경우 적절한 초기 위치 설정
+      scene.add(cubeMesh);
+    };
+
+    // zoneManager loads data, clears its own state, sets up new grids/texts, and calls the callback for meshes
+    zoneManager.loadZoneData(loadedData, addCubeMeshToSceneCallback);
+
+    const { x: czx, y: czy } = zoneManager.getCurrentZoneCoordinates();
+    const zoneSize = zoneManager.getZoneSize();
+
+    // Adjust camera to the new current zone
+    if (czx !== 0 || czy !== 0) {
+      camera.position.x = czx * zoneSize; // czx is world X for zone center
+      camera.position.z = czy * zoneSize + 20; // czy is world Z for zone center, add offset
+      camera.lookAt(czx * zoneSize, 0, czy * zoneSize);
+    } else {
+      // Default camera position if current zone is (0,0)
       camera.position.set(-15, 12, 15);
       camera.lookAt(0, 0, 0);
     }
+    updateFpsObstacles(); // Update obstacles after new cubes are in place
+    // showToast is called by zoneManager.switchToZone if it's part of loadZoneData's internal reset.
+    // If not, and if a zone change occurred, a toast might be needed here.
+    // zoneManager.loadZoneData itself calls clearAllZoneData which then calls showToast.
   }
   
-  // 씬의 모든 큐브 제거
-  function clearScene() {
-    // 모든 Zone의 기존 큐브들 제거
-    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
-      zoneCubes.forEach(cube => scene.remove(cube));
-      zoneCubes.length = 0; // 배열 비우기
-    }
+  // Clears only cube meshes from the scene. Grids/texts are handled by zoneManager.
+  function clearSceneMeshes() {
+    const meshesToRemove = scene.children.filter(child => child.isMesh && child.gridX !== undefined);
+    meshesToRemove.forEach(mesh => scene.remove(mesh));
+    console.log("Cleared all cube meshes from scene.");
   }
 
   // ---- 첫 진입 시 해당 spaceId에 저장된 씬 자동 로드 ----
@@ -1349,53 +845,7 @@ function initApp() {
   }
   // ---- End 자동 로드 ----
 
-  // 오른쪽 클릭으로 큐브 삭제
-  renderer.domElement.addEventListener('contextmenu', (event) => {
-    // FPS 모드일 때는 우클릭 삭제 건너뜀
-    if (fpsControls && fpsControls.enabled) {
-      event.preventDefault();
-      return;
-    }
-    
-    const rect = renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
-
-    // 현재 Zone의 큐브들만 삭제 가능
-    const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const intersects = raycaster.intersectObjects(currentZoneCubes);
-    
-    if (intersects.length > 0) {
-      event.preventDefault();
-      const targetCube = intersects[0].object;
-      
-      // 씬에서 제거
-      scene.remove(targetCube);
-
-      // Zone 배열에서 제거 (실시간 동기화 포함)
-      removeCubeFromZone(currentZoneX, currentZoneY, targetCube);
-
-      // hover 상태 초기화
-      if (hoveredCube === targetCube) {
-        hoveredCube = null;
-        hoveredFaceNormal = null;
-      }
-
-      // highlight edge 정리
-      if (highlightEdge) {
-        scene.remove(highlightEdge);
-        highlightEdge = null;
-      }
-      
-      // 자동저장은 removeCubeFromZone에서 처리됨
-    } else {
-      event.preventDefault(); // 컨텍스트 메뉴 표시 방지
-    }
-  });
+  // CONTEXTMENU LISTENER WAS HERE - NOW DELETED
 
   // Download button functionality (Zone 시스템용)
   const downloadButton = document.getElementById('downloadButton');
@@ -1558,28 +1008,22 @@ function initApp() {
     }
   });
 
-  // 렌더 루프
-  function animate() {
-    requestAnimationFrame(animate);
-    
-    // FPSControls가 활성화된 경우 FPS 이동 처리
-    if (fpsControls && fpsControls.enabled) {
-      fpsControls.update();
-    } else {
-      // 기존 키보드 이동 처리
-      handleKeyboardMovement();
+  // 렌더 루프 is now handled by core3d.js
+  // We need to create cameraControls for the new startAnimation function
+  const cameraControls = {
+    update: function() {
+      handleKeyboardMovement(); // This function needs access to camera and keyStates
     }
-    
-    renderer.render(scene, camera);
-  }
+  };
 
-  console.log('3D 환경 초기화 완료');
-  console.log('그리드 추가됨:', scene.children.length, '개 객체');
-  console.log('카메라 위치:', camera.position);
-  console.log('렌더러 크기:', renderer.domElement.width, 'x', renderer.domElement.height);
+  console.log('3D 환경 초기화 완료 (via core3d.js)');
+  // The following logs might be slightly different as objects are now managed by core3d.js
+  // console.log('그리드 추가됨:', scene.children.length, '개 객체');
+  // console.log('카메라 위치:', camera.position);
+  // console.log('렌더러 크기:', renderer.domElement.width, 'x', renderer.domElement.height);
   
   hideLoading();
-  animate();
+  startAnimation(fpsControls, cameraControls); // Start the animation loop from core3d.js
   
   } catch (error) {
     console.error('3D 환경 초기화 오류:', error);

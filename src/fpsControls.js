@@ -125,21 +125,7 @@ export class FPSControls {
     return false;
   }
 
-  debugDrawPlayerCylinder(scene) {
-    if (this._debugCylinderMesh) {
-      scene.remove(this._debugCylinderMesh);
-    }
-    const geo = new THREE.CylinderGeometry(this.cylinderRadius, this.cylinderRadius, this.cylinderHeight, 24);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(
-      this.playerObject.position.x,
-      this.playerObject.position.y - this.cylinderHeight / 2,
-      this.playerObject.position.z
-    );
-    scene.add(mesh);
-    this._debugCylinderMesh = mesh;
-  }
+  // debugDrawPlayerCylinder method removed.
 
   setScene(scene) {
     this.scene = scene;
@@ -547,10 +533,7 @@ export class FPSControls {
     this.camera.position.x = 0;
     this.camera.position.z = 0;
 
-    // 콜리전 실린더 시각화 (디버깅용)
-    if (this.scene) {
-      this.debugDrawPlayerCylinder(this.scene);
-    }
+    // Call to debugDrawPlayerCylinder removed.
   }
   updateCameraRotation() {
     // playerObject가 yaw 회전을 담당 (플레이어 몸체 회전)
