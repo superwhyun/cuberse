@@ -163,6 +163,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 모델 배치 이벤트 (스페이스 내 브로드캐스트)
+  socket.on('place model', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      console.log(`[MODEL] 모델 배치: ${data.cubes.length}개 큐브, spaceId=${spaceId}`);
+      spaceManager.emitToSpace(spaceId, 'place model', data);
+    }
+  });
+
   // 방 정보 요청 (게스트 → 호스트)
   socket.on('request room info', ({ spaceId }) => {
     console.log(`[ROOM] 방 정보 요청: spaceId=${spaceId}, 요청자=${socket.id}`);

@@ -32,10 +32,16 @@
       <div class="color-preset" data-color="#000000" style="background: #000000;" title="검정"></div>
       <div class="color-preset" data-color="#ff8000" style="background: #ff8000;" title="주황"></div>
       <div class="color-preset" data-color="#8000ff" style="background: #8000ff;" title="보라"></div>
+      <input type="color" id="cubeColor" value="#ff0000" style="width: 30px; height: 30px; border-radius: 6px; border: 2px solid #e2e8f0; cursor: pointer;">
     </div>
     
-    <div style="margin: 16px 0; font-size: 0.9rem; color: #666;">또는 커스텀 색상:</div>
-    <input type="color" id="cubeColor" value="#ff0000">
+    <div id="model-drop-zone">
+      <div class="drop-zone-content">
+        <div class="drop-zone-icon">📦</div>
+        <div class="drop-zone-text">모델 파일 드롭</div>
+        <div class="drop-zone-subtext">JSON 파일을 여기에 놓으세요</div>
+      </div>
+    </div>
     <button id="downloadButton">📥 다운로드</button>
     
     <!-- 조작키 설명 섹션 -->
@@ -72,22 +78,37 @@
     if (!userId) {
       window.location.href = '/login.html';
     } else {
-      console.log('THREE 객체:', window.THREE);
-      // main-legacy.js를 ES Module로 직접 로드
-      const script = document.createElement('script');
-      script.type = 'module';
-      script.src = 'src/main-legacy.js';
-      script.onload = () => console.log('main-legacy.js 로딩 완료');
-      script.onerror = (e) => {
-        console.error('main-legacy.js 로딩 실패:', e);
+      // THREE.js CDN 로드
+      const threeScript = document.createElement('script');
+      threeScript.src = 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js';
+      threeScript.onload = () => {
+        console.log('THREE 객체:', window.THREE);
+        // main-legacy.js를 ES Module로 직접 로드
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = 'src/main-legacy.js';
+        script.onload = () => console.log('main-legacy.js 로딩 완료');
+        script.onerror = (e) => {
+          console.error('main-legacy.js 로딩 실패:', e);
+          document.getElementById('initial-loading').innerHTML = `
+            <div style="color: red; text-align: center;">
+              <div>스크립트 로딩에 실패했습니다</div>
+              <div style="font-size: 0.9em; margin-top: 10px;">페이지를 새로고침해주세요</div>
+            </div>
+          `;
+        };
+        document.head.appendChild(script);
+      };
+      threeScript.onerror = (e) => {
+        console.error('THREE.js 로딩 실패:', e);
         document.getElementById('initial-loading').innerHTML = `
           <div style="color: red; text-align: center;">
-            <div>스크립트 로딩에 실패했습니다</div>
+            <div>THREE.js 로딩에 실패했습니다</div>
             <div style="font-size: 0.9em; margin-top: 10px;">페이지를 새로고침해주세요</div>
           </div>
         `;
       };
-      document.head.appendChild(script);
+      document.head.appendChild(threeScript);
     }
   </script>
 </body>
