@@ -435,6 +435,10 @@ function initApp() {
   //    (FPS/편집모드 전환에 따라 위치와 계층 구조가 결정됨)
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   console.log('카메라 생성:', camera);
+  
+  // 카메라 초기 위치 설정 (가장 먼저)
+  camera.position.set(-20, 20, 20);
+  camera.lookAt(0, 0, 0);
 
   // 3. THREE.WebGLRenderer 생성 및 DOM에 추가
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -613,27 +617,13 @@ function initApp() {
   }
   
   function updateZoneFloors() {
-    // 모든 기존 바닥 면 제거
+    // 편집 구역 표시 바닥 제거 - 어디든 편집 가능하므로 불필요
     for (const [zoneKey, floor] of zoneFloors) {
       scene.remove(floor);
     }
     zoneFloors.clear();
     
-    // 현재 활성 Zone에만 바닥 면 추가
-    const activeZoneKey = getCurrentZoneKey();
-    const floorGeometry = new THREE.PlaneGeometry(ZONE_SIZE, ZONE_SIZE);
-    const floorMaterial = new THREE.MeshBasicMaterial({ 
-      color: 0x4f46e5, 
-      transparent: true, 
-      opacity: 0.1,
-      side: THREE.DoubleSide
-    });
-    const floorPlane = new THREE.Mesh(floorGeometry, floorMaterial);
-    floorPlane.rotation.x = -Math.PI / 2;
-    floorPlane.position.set(currentZoneX * ZONE_SIZE, 0.01, currentZoneY * ZONE_SIZE);
-    scene.add(floorPlane);
-    
-    zoneFloors.set(activeZoneKey, floorPlane);
+    // 더 이상 활성 Zone 바닥 표시하지 않음
   }
   
   // 현재 Zone 그리드 생성 (활성)
@@ -706,10 +696,7 @@ function initApp() {
   console.log('큐브 크기:', cubeSize);
 
   function addCube(x, y, z, color, byRemote = false, isModelPlacement = false) {
-    // 모델 배치가 아닌 경우에만 Zone 제한 적용
-    if (!isModelPlacement && (x < 0 || x >= ZONE_DIVISIONS || z < 0 || z >= ZONE_DIVISIONS)) {
-      return;
-    }
+    // Zone 범위 제한 제거 - 어디서든 편집 가능
     
     // 해당 위치에 큐브가 배치될 Zone 계산
     let targetZoneX = currentZoneX;
@@ -717,8 +704,8 @@ function initApp() {
     let localX = x;
     let localZ = z;
     
-    if (isModelPlacement) {
-      // 모델 배치 시에는 Zone 경계를 넘어갈 수 있음
+    // 모델 배치이거나 Zone 경계를 넘는 경우 자동으로 Zone 계산
+    if (isModelPlacement || x < 0 || x >= ZONE_DIVISIONS || z < 0 || z >= ZONE_DIVISIONS) {
       targetZoneX = currentZoneX + Math.floor(x / ZONE_DIVISIONS);
       targetZoneY = currentZoneY + Math.floor(z / ZONE_DIVISIONS);
       localX = ((x % ZONE_DIVISIONS) + ZONE_DIVISIONS) % ZONE_DIVISIONS;
@@ -959,17 +946,12 @@ function initApp() {
 
     // 모델 배치 모드인 경우
     if (placementMode && placementModelData) {
-      // 바닥 클릭 위치 감지 - 현재 활성 Zone의 바닥 사용
-      const currentZoneKey = getCurrentZoneKey();
-      const currentFloor = zoneFloors.get(currentZoneKey);
+      // 바닥 클릭 위치 감지 - y=0 평면 사용
+      const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const intersectPoint = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
       
-      if (currentFloor) {
-        const floorIntersects = raycaster.intersectObjects([currentFloor]);
-        if (floorIntersects.length > 0) {
-          const point = floorIntersects[0].point;
-          // 교차점의 월드 좌표를 직접 전달
-          placeModel(point.x, point.z);
-        }
+      if (intersectPoint) {
+        placeModel(intersectPoint.x, intersectPoint.z);
       }
       return;
     }
@@ -998,9 +980,12 @@ function initApp() {
       return;
     }
 
-    // 현재 Zone의 큐브들만 검사하여 큐브 클릭 여부 확인
-    const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const cubeIntersects = raycaster.intersectObjects(currentZoneCubes);
+    // 모든 큐브들을 검사하여 큐브 클릭 여부 확인
+    const allCubes = [];
+    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+      allCubes.push(...zoneCubes);
+    }
+    const cubeIntersects = raycaster.intersectObjects(allCubes);
     
     // 큐브를 클릭한 경우는 이미 hover에서 처리되므로, 바닥 클릭만 처리
     if (cubeIntersects.length === 0) {
@@ -1008,26 +993,39 @@ function initApp() {
       const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
       const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
       if (intersect) {
-        // 현재 Zone 기준으로 좌표 변환
-        const localX = intersect.x - (currentZoneX * ZONE_SIZE);
-        const localZ = intersect.z - (currentZoneY * ZONE_SIZE);
+        // 절대 좌표를 격자 좌표로 변환
+        let x = Math.floor(intersect.x / cubeSize);
+        let z = Math.floor(intersect.z / cubeSize);
         
-        let x = Math.floor(localX / cubeSize + ZONE_DIVISIONS / 2);
-        let z = Math.floor(localZ / cubeSize + ZONE_DIVISIONS / 2);
+        // Zone 제한 없이 어디든 배치 가능
+        // 해당 x,z 위치에서 가장 낮은 빈 공간 찾기
+        let y = 0;
+        let found = false;
         
-        if (x >= 0 && x < ZONE_DIVISIONS && z >= 0 && z < ZONE_DIVISIONS) {
-          // 해당 x,z 위치에서 가장 낮은 빈 공간 찾기
-          const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-          let y = 0;
-          while (currentZoneCubes.some(cube =>
-            Math.abs(cube.position.x - ((currentZoneX * ZONE_SIZE) + (x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize)) < 0.01 &&
-            Math.abs(cube.position.y - ((y + 0.5) * cubeSize)) < 0.01 &&
-            Math.abs(cube.position.z - ((currentZoneY * ZONE_SIZE) + (z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize)) < 0.01
-          )) {
-            y++;
+        // 모든 Zone에서 해당 위치의 큐브 검사
+        while (!found) {
+          found = true;
+          for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+            if (zoneCubes.some(cube => {
+              const worldX = cube.position.x;
+              const worldY = cube.position.y;
+              const worldZ = cube.position.z;
+              return Math.abs(worldX - x * cubeSize) < 0.01 &&
+                     Math.abs(worldY - (y + 0.5) * cubeSize) < 0.01 &&
+                     Math.abs(worldZ - z * cubeSize) < 0.01;
+            })) {
+              found = false;
+              y++;
+              break;
+            }
           }
-          addCube(x, y, z, cubeColor);
         }
+        
+        // 현재 Zone 기준으로 격자 좌표 계산
+        const gridX = x - (currentZoneX * ZONE_SIZE / cubeSize) + ZONE_DIVISIONS / 2;
+        const gridZ = z - (currentZoneY * ZONE_SIZE / cubeSize) + ZONE_DIVISIONS / 2;
+        
+        addCube(gridX, y, gridZ, cubeColor);
       }
     }
   });
@@ -1091,33 +1089,29 @@ function initApp() {
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(mouse, camera);
       
-      const currentZoneKey = getCurrentZoneKey();
-      const currentFloor = zoneFloors.get(currentZoneKey);
+      // y=0 평면과의 교차점 계산
+      const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const intersectPoint = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
       
-      if (currentFloor) {
-        const floorIntersects = raycaster.intersectObjects([currentFloor]);
-        if (floorIntersects.length > 0) {
-          const point = floorIntersects[0].point;
-          
-          // 미리보기 업데이트 (월드 좌표 직접 전달)
-          updatePlacementPreview(point.x, point.z);
-          
-          // 격자에 스냅된 월드 좌표 계산 (커서용)
-          const gridX = Math.floor((point.x - currentZoneX * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-          const gridZ = Math.floor((point.z - currentZoneY * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-          const snappedWorldX = (currentZoneX * ZONE_SIZE) + (gridX - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-          const snappedWorldZ = (currentZoneY * ZONE_SIZE) + (gridZ - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-          
-          // 월드 좌표를 화면 좌표로 변환 (커서용)
-          const worldPos = new THREE.Vector3(snappedWorldX, 0, snappedWorldZ);
-          worldPos.project(camera);
-          
-          const screenX = (worldPos.x * 0.5 + 0.5) * rect.width + rect.left;
-          const screenY = (-worldPos.y * 0.5 + 0.5) * rect.height + rect.top;
-          
-          placementCursor.style.left = screenX + 'px';
-          placementCursor.style.top = screenY + 'px';
-        }
+      if (intersectPoint) {
+        // 미리보기 업데이트 (월드 좌표 직접 전달)
+        updatePlacementPreview(intersectPoint.x, intersectPoint.z);
+        
+        // 격자에 스냅된 월드 좌표 계산 (커서용)
+        const gridX = Math.floor((intersectPoint.x - currentZoneX * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+        const gridZ = Math.floor((intersectPoint.z - currentZoneY * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+        const snappedWorldX = (currentZoneX * ZONE_SIZE) + (gridX - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+        const snappedWorldZ = (currentZoneY * ZONE_SIZE) + (gridZ - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+        
+        // 월드 좌표를 화면 좌표로 변환 (커서용)
+        const worldPos = new THREE.Vector3(snappedWorldX, 0, snappedWorldZ);
+        worldPos.project(camera);
+        
+        const screenX = (worldPos.x * 0.5 + 0.5) * rect.width + rect.left;
+        const screenY = (-worldPos.y * 0.5 + 0.5) * rect.height + rect.top;
+        
+        placementCursor.style.left = screenX + 'px';
+        placementCursor.style.top = screenY + 'px';
       }
     }
     
@@ -1209,12 +1203,17 @@ function initApp() {
         // 현재 Zone의 큐브들만 하이라이트
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(currentMouse, camera);
-        const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
+        
+        // 모든 Zone의 큐브들을 검사 대상으로 확장
+        const allCubes = [];
+        for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+          allCubes.push(...zoneCubes);
+        }
         
         // 씬에서 실제로 존재하는 큐브들만 필터링
-        const validZoneCubes = currentZoneCubes.filter(cube => scene.children.includes(cube));
+        const validCubes = allCubes.filter(cube => scene.children.includes(cube));
         
-        const cubeIntersects = raycaster.intersectObjects(validZoneCubes);
+        const cubeIntersects = raycaster.intersectObjects(validCubes);
 
         if (highlightEdge) {
             scene.remove(highlightEdge);
@@ -1618,12 +1617,17 @@ function initApp() {
       
       // 복원된 Zone으로 이동 및 바닥 면 업데이트
       if (currentZoneX !== 0 || currentZoneY !== 0) {
-        // 카메라를 복원된 Zone 위치로 이동
+        // Zone이 (0,0)이 아닌 경우만 카메라 이동
         const targetX = currentZoneX * ZONE_SIZE;
         const targetZ = currentZoneY * ZONE_SIZE;
-        camera.position.x = targetX;
+        camera.position.x = targetX - 20;
+        camera.position.y = 20;
         camera.position.z = targetZ + 20;
         camera.lookAt(targetX, 0, targetZ);
+      } else {
+        // Zone (0,0)인 경우 기본 위치 유지
+        camera.position.set(-20, 20, 20);
+        camera.lookAt(0, 0, 0);
       }
       
       // 바닥 면 업데이트 (복원된 Zone이 활성화되도록)
@@ -1647,7 +1651,7 @@ function initApp() {
     // ---- 초기 카메라 위치 설정 (데이터 로드 후) ----
     if (currentZoneX === 0 && currentZoneY === 0) {
       // 첫 접속이거나 Zone (0,0)인 경우 적절한 초기 위치 설정
-      camera.position.set(-15, 12, 15);
+      camera.position.set(-20, 20, 20);
       camera.lookAt(0, 0, 0);
     }
   }
@@ -1668,7 +1672,7 @@ function initApp() {
     loadSceneFromData(loadedSceneData);
   } else {
     // ---- 초기 카메라 위치 설정 (데이터가 없을 때) ----
-    camera.position.set(-15, 12, 15);
+    camera.position.set(-20, 20, 20);
     camera.lookAt(0, 0, 0);
   }
   // ---- End 자동 로드 ----
@@ -1689,9 +1693,12 @@ function initApp() {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, camera);
 
-    // 현재 Zone의 큐브들만 삭제 가능
-    const currentZoneCubes = getZoneCubes(currentZoneX, currentZoneY);
-    const intersects = raycaster.intersectObjects(currentZoneCubes);
+    // 모든 큐브들이 삭제 가능
+    const allCubes = [];
+    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+      allCubes.push(...zoneCubes);
+    }
+    const intersects = raycaster.intersectObjects(allCubes);
     
     if (intersects.length > 0) {
       event.preventDefault();
@@ -1700,8 +1707,21 @@ function initApp() {
       // 씬에서 제거
       scene.remove(targetCube);
 
-      // Zone 배열에서 제거 (실시간 동기화 포함)
-      removeCubeFromZone(currentZoneX, currentZoneY, targetCube);
+      // 해당 큐브가 속한 Zone을 찾아서 제거
+      let found = false;
+      for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+        const index = zoneCubes.indexOf(targetCube);
+        if (index > -1) {
+          const [zoneX, zoneY] = zoneKey.split(',').map(Number);
+          removeCubeFromZone(zoneX, zoneY, targetCube);
+          found = true;
+          break;
+        }
+      }
+      
+      if (!found) {
+        console.warn('삭제할 큐브의 Zone을 찾을 수 없음:', targetCube);
+      }
 
       // hover 상태 초기화
       if (hoveredCube === targetCube) {
