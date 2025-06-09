@@ -138,6 +138,11 @@ function initApp() {
     lastCheckedCameraPos.z = currentPos.z;
   }
 
+  function clearDragPreview() {
+    dragPreviewCubes.forEach(cube => scene.remove(cube));
+    dragPreviewCubes.length = 0;
+  }
+
   // Zone별 큐브 데이터 저장
   const zoneData = {};
   
@@ -465,6 +470,9 @@ function initApp() {
 
   // Mouse drag variables
   let isDragging = false;
+  let isRightDragging = false; // 우클릭 드래그 상태
+  let deletedCubesInDrag = new Set(); // 드래그 중 삭제된 큐브들 추적
+  let dragPreviewCubes = []; // 드래그 미리보기 큐브들
   let previousMousePosition = { x: 0, y: 0 };
   let initialMousePosition = { x: 0, y: 0 };
   const dragThreshold = 5; // pixels
@@ -1058,10 +1066,15 @@ function initApp() {
     // FPS 모드일 때는 편집 기능 건너뜀
     if (fpsControls && fpsControls.enabled) return;
     
-    if (event.button === 2) { // Right mouse button for context menu
-        return;
+    if (event.button === 2) { // Right mouse button
+      isRightDragging = true;
+      deletedCubesInDrag.clear(); // 새 드래그 시작 시 초기화
+      event.preventDefault();
+      return;
     }
+    
     isDragging = true;
+    dragPreviewCubes.length = 0; // 새 드래그 시작 시 미리보기 초기화
     initialMousePosition.x = event.clientX;
     initialMousePosition.y = event.clientY;
     previousMousePosition.x = event.clientX;
@@ -1087,6 +1100,8 @@ function initApp() {
       isDraggingCube = false;
       dragStartCube = null;
       dragStartFace = null;
+      // 드래그 미리보기도 정리
+      clearDragPreview();
       console.log('마우스가 3D 영역을 벗어나서 드래깅 중단');
     }
     
@@ -1132,6 +1147,54 @@ function initApp() {
         -((event.clientY - rect.top) / rect.height) * 2 + 1
     );
 
+    // 우클릭 드래그 삭제 처리
+    if (isRightDragging) {
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(currentMouse, camera);
+      
+      // 모든 큐브들과 교차 검사
+      const allCubes = [];
+      for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+        allCubes.push(...zoneCubes);
+      }
+      const intersects = raycaster.intersectObjects(allCubes);
+      
+      if (intersects.length > 0) {
+        const targetCube = intersects[0].object;
+        const cubeId = `${targetCube.position.x}_${targetCube.position.y}_${targetCube.position.z}`;
+        
+        // 이미 삭제된 큐브가 아닌 경우에만 삭제
+        if (!deletedCubesInDrag.has(cubeId)) {
+          deletedCubesInDrag.add(cubeId);
+          
+          // 씬에서 제거
+          scene.remove(targetCube);
+          
+          // 해당 큐브가 속한 Zone을 찾아서 제거
+          for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+            const index = zoneCubes.indexOf(targetCube);
+            if (index > -1) {
+              const [zoneX, zoneY] = zoneKey.split(',').map(Number);
+              removeCubeFromZone(zoneX, zoneY, targetCube);
+              break;
+            }
+          }
+          
+          // hover 상태 초기화
+          if (hoveredCube === targetCube) {
+            hoveredCube = null;
+            hoveredFaceNormal = null;
+          }
+          
+          // highlight edge 정리
+          if (highlightEdge) {
+            scene.remove(highlightEdge);
+            highlightEdge = null;
+          }
+        }
+      }
+    }
+
     if (isDragging) {
         const deltaX = event.clientX - previousMousePosition.x;
         const deltaY = event.clientY - previousMousePosition.y;
@@ -1140,40 +1203,87 @@ function initApp() {
         previousMousePosition.y = event.clientY;
 
         if (isDraggingCube && dragStartCube && dragStartFace) {
-          // 큐브 드래그 모드: 직선 경로에 큐브 생성
-          const dragDistance = Math.sqrt(
-            Math.pow(event.clientX - initialMousePosition.x, 2) + 
-            Math.pow(event.clientY - initialMousePosition.y, 2)
+          // 기존 미리보기 제거
+          clearDragPreview();
+          
+          // 현재 마우스 위치를 3D 공간으로 변환
+          const rect = renderer.domElement.getBoundingClientRect();
+          const mouse = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
           );
           
-          if (dragDistance > dragThreshold) {
-            // 드래그 방향에 따른 큐브 생성 개수 계산 (거리에 비례)
-            const cubeCount = Math.floor(dragDistance / 20); // 20px마다 1개 큐브
+          const raycaster = new THREE.Raycaster();
+          raycaster.setFromCamera(mouse, camera);
+          
+          // 드래그 시작 큐브와 같은 높이의 평면 생성
+          const dragPlane = new THREE.Plane();
+          dragPlane.setFromNormalAndCoplanarPoint(
+            dragStartFace.clone().normalize(),
+            dragStartCube.position
+          );
+          
+          // 마우스 레이와 평면의 교차점 계산
+          const intersectPoint = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
+          
+          if (intersectPoint) {
+            // 시작점에서 현재 마우스 위치까지의 3D 거리 계산
+            const distance3D = dragStartCube.position.distanceTo(intersectPoint);
             
-            if (cubeCount > 0) {
-              // 시작 큐브 위치 계산
-              const localX = dragStartCube.position.x - (currentZoneX * ZONE_SIZE);
-              const localZ = dragStartCube.position.z - (currentZoneY * ZONE_SIZE);
+            // 큐브 크기 기준으로 생성할 큐브 개수 계산
+            const cubeCount = Math.floor(distance3D / cubeSize);
+            
+            // 시작 큐브 위치 계산
+            const localX = dragStartCube.position.x - (currentZoneX * ZONE_SIZE);
+            const localZ = dragStartCube.position.z - (currentZoneY * ZONE_SIZE);
+            
+            const startGridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+            const startGridY = Math.round((dragStartCube.position.y / cubeSize) - 0.5);
+            const startGridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+            
+            // 면 방향으로 미리보기 큐브들 생성
+            for (let i = 1; i <= cubeCount; i++) {
+              const nextX = startGridX + Math.round(dragStartFace.x) * i;
+              const nextY = startGridY + Math.round(dragStartFace.y) * i;
+              const nextZ = startGridZ + Math.round(dragStartFace.z) * i;
               
-              const startGridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-              const startGridY = Math.round((dragStartCube.position.y / cubeSize) - 0.5);
-              const startGridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-              
-              // 면 방향으로 직선 경로에 큐브들 생성
-              for (let i = 1; i <= cubeCount; i++) {
-                const nextX = startGridX + Math.round(dragStartFace.x) * i;
-                const nextY = startGridY + Math.round(dragStartFace.y) * i;
-                const nextZ = startGridZ + Math.round(dragStartFace.z) * i;
+              if (nextY >= 0) {
+                // 미리보기 큐브 생성 (반투명)
+                const targetZoneX = currentZoneX + Math.floor(nextX / ZONE_DIVISIONS);
+                const targetZoneY = currentZoneY + Math.floor(nextZ / ZONE_DIVISIONS);
+                const localGridX = ((nextX % ZONE_DIVISIONS) + ZONE_DIVISIONS) % ZONE_DIVISIONS;
+                const localGridZ = ((nextZ % ZONE_DIVISIONS) + ZONE_DIVISIONS) % ZONE_DIVISIONS;
                 
-                // Zone 제한 없이 큐브 생성
-                if (nextY >= 0) {
-                  addCube(nextX, nextY, nextZ, cubeColor);
-                }
+                const worldX = (targetZoneX * ZONE_SIZE) + (localGridX - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+                const worldZ = (targetZoneY * ZONE_SIZE) + (localGridZ - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+                
+                const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+                const material = new THREE.MeshLambertMaterial({ 
+                  color: cubeColor,
+                  transparent: true,
+                  opacity: 0.5
+                });
+                
+                const previewCube = new THREE.Mesh(geometry, material);
+                previewCube.position.set(worldX, (nextY + 0.5) * cubeSize, worldZ);
+                
+                // 테두리 추가
+                const edges = new THREE.EdgesGeometry(geometry);
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                  color: 0xffffff, 
+                  transparent: true, 
+                  opacity: 0.8 
+                });
+                const wireframe = new THREE.LineSegments(edges, lineMaterial);
+                previewCube.add(wireframe);
+                
+                scene.add(previewCube);
+                dragPreviewCubes.push(previewCube);
               }
-              
-              wasDraggingJustNow = true;
             }
           }
+          
+          wasDraggingJustNow = true;
         } else {
           // 일반 카메라 드래그 모드: 회전
           if (Math.abs(deltaX) > 0.1) {
@@ -1249,7 +1359,14 @@ function initApp() {
     if (fpsControls && fpsControls.enabled) return;
     
     if (event.button === 2) { // Right mouse button
-        return;
+      if (isRightDragging) {
+        isRightDragging = false;
+        if (deletedCubesInDrag.size > 0) {
+          showToast(`${deletedCubesInDrag.size}개 큐브가 삭제되었습니다.`);
+        }
+        deletedCubesInDrag.clear();
+      }
+      return;
     }
     if (isDragging) {
         const deltaX = event.clientX - initialMousePosition.x;
@@ -1257,8 +1374,57 @@ function initApp() {
         const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
         if (dragDistance > dragThreshold) {
+            // 드래그한 경우 - 미리보기 큐브들을 실제 큐브로 변환
             wasDraggingJustNow = true;
+            
+            if (dragPreviewCubes.length > 0) {
+              dragPreviewCubes.forEach(previewCube => {
+                // 미리보기 큐브 위치를 격자 좌표로 변환
+                const worldX = previewCube.position.x;
+                const worldY = previewCube.position.y;
+                const worldZ = previewCube.position.z;
+                
+                // Zone과 로컬 격자 좌표 계산
+                const zoneX = Math.floor(worldX / ZONE_SIZE);
+                const zoneY = Math.floor(worldZ / ZONE_SIZE);
+                const localX = Math.round((worldX - zoneX * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+                const localZ = Math.round((worldZ - zoneY * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+                const gridY = Math.round(worldY / cubeSize - 0.5);
+                
+                // 글로벌 격자 좌표 계산
+                const globalX = localX + (zoneX - currentZoneX) * ZONE_DIVISIONS;
+                const globalZ = localZ + (zoneY - currentZoneY) * ZONE_DIVISIONS;
+                
+                // 실제 큐브 생성
+                addCube(globalX, gridY, globalZ, cubeColor);
+              });
+              
+              showToast(`${dragPreviewCubes.length}개 큐브가 생성되었습니다.`);
+            }
+        } else {
+            // 클릭한 경우 - 기존 로직으로 큐브 하나 생성
+            if (isDraggingCube && dragStartCube && dragStartFace) {
+              // 드래그 시작 큐브 옆에 하나 생성
+              const localX = dragStartCube.position.x - (currentZoneX * ZONE_SIZE);
+              const localZ = dragStartCube.position.z - (currentZoneY * ZONE_SIZE);
+              
+              const startGridX = Math.round(localX / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+              const startGridY = Math.round((dragStartCube.position.y / cubeSize) - 0.5);
+              const startGridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
+              
+              const nextX = startGridX + Math.round(dragStartFace.x);
+              const nextY = startGridY + Math.round(dragStartFace.y);
+              const nextZ = startGridZ + Math.round(dragStartFace.z);
+              
+              if (nextY >= 0) {
+                addCube(nextX, nextY, nextZ, cubeColor);
+              }
+            }
         }
+        
+        // 미리보기 정리
+        clearDragPreview();
+        
         isDragging = false;
         isDraggingCube = false;
         dragStartCube = null;
