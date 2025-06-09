@@ -4,8 +4,10 @@
   "description": "마인크래프트 스타일 큐브 쌓기 웹앱",
   "main": "server.js",
   "scripts": {
-    "dev": "nodemon server.js",
-    "start": "node server.js",
+    "dev": "NODE_ENV=development nodemon server.js",
+    "start": "NODE_ENV=production node server.js",
+    "prod": "NODE_ENV=production node server.js",
+    "service": "NODE_ENV=production node server.js",
     "vercel-build": "echo 'Build for Vercel complete'",
     "deploy": "vercel --prod",
     "headless": "npx serve ."

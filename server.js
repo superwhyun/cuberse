@@ -7,7 +7,13 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
-const PORT = 3001;
+
+// 환경별 포트 설정
+const isDev = process.env.NODE_ENV !== 'production';
+const PORT = process.env.PORT || (isDev ? 3001 : 3000); // dev: 3001, production: 3000
+
+console.log(`🚀 환경: ${isDev ? 'DEVELOPMENT' : 'PRODUCTION'}`);
+console.log(`📡 포트: ${PORT}`);
 
 // 정적 파일 서빙
 app.use(express.static(__dirname));
