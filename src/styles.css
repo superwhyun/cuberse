@@ -122,6 +122,27 @@ body {
   visibility: visible;
 }
 
+/* 조명 토글 버튼 특별 스타일 */
+.lighting-on {
+  background: linear-gradient(135deg, #ffd700 0%, #ffb347 100%) !important;
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3) !important;
+}
+
+.lighting-on:hover {
+  background: linear-gradient(135deg, #ffb347 0%, #ffd700 100%) !important;
+  box-shadow: 0 8px 20px rgba(255, 215, 0, 0.4) !important;
+}
+
+.lighting-off {
+  background: linear-gradient(135deg, #6c757d 0%, #495057 100%) !important;
+  box-shadow: 0 4px 12px rgba(108, 117, 125, 0.2) !important;
+}
+
+.lighting-off:hover {
+  background: linear-gradient(135deg, #495057 0%, #6c757d 100%) !important;
+  box-shadow: 0 8px 20px rgba(108, 117, 125, 0.3) !important;
+}
+
 #cubeColor {
   /* unchanged */
 

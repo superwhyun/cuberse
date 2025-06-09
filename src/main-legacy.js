@@ -330,7 +330,12 @@ function initApp() {
             
             // 해당 Zone의 큐브로 직접 생성
             const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-            const material = new THREE.MeshLambertMaterial({ color: data.color });
+            
+            // 조명 설정에 따른 머티리얼 선택
+            const material = lightingEnabled 
+              ? new THREE.MeshLambertMaterial({ color: data.color })
+              : new THREE.MeshBasicMaterial({ color: data.color });
+            
             const cube = new THREE.Mesh(geometry, material);
             
             // 테두리 추가
@@ -387,7 +392,12 @@ function initApp() {
               
               // 큐브 생성
               const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-              const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
+              
+              // 조명 설정에 따른 머티리얼 선택
+              const material = lightingEnabled 
+                ? new THREE.MeshLambertMaterial({ color: cubeData.color })
+                : new THREE.MeshBasicMaterial({ color: cubeData.color });
+              
               const cube = new THREE.Mesh(geometry, material);
               
               // 테두리 추가
@@ -836,7 +846,11 @@ function initApp() {
     const lodLevel = calculateGeometryLOD(distance);
     const geometry = getGeometryForLOD(lodLevel);
     
-    const material = new THREE.MeshLambertMaterial({ color });
+    // 조명 설정에 따른 머티리얼 선택
+    const material = lightingEnabled 
+      ? new THREE.MeshLambertMaterial({ color }) 
+      : new THREE.MeshBasicMaterial({ color });
+    
     const cube = new THREE.Mesh(geometry, material);
     cube._geometryLod = lodLevel; // LOD 레벨 저장
     
@@ -1557,6 +1571,13 @@ function initApp() {
     shift: false // Shift 키 상태 추가
   };
   
+  // 키 상태 강제 리셋 함수
+  function resetAllKeyStates() {
+    Object.keys(keyStates).forEach(key => {
+      keyStates[key] = false;
+    });
+  }
+  
   const moveSpeed = 0.2; // 이동 속도 (초당 유닛)
   const rotateSpeed = 0.02; // 회전 속도
 
@@ -1685,15 +1706,46 @@ function initApp() {
     return keyMap[key] || key;
   }
 
-  // 페이지 포커스 잃을 때 모든 키 상태 리셋 (키가 눌린 채로 고정되는 것 방지)
-  window.addEventListener('blur', () => {
-    Object.keys(keyStates).forEach(key => {
-      keyStates[key] = false;
-    });
+  // 키 상태 리셋을 위한 다양한 이벤트 리스너들
+  
+  // 페이지 포커스 잃을 때
+  window.addEventListener('blur', resetAllKeyStates);
+  
+  // 페이지 포커스 얻을 때 (안전장치)
+  window.addEventListener('focus', resetAllKeyStates);
+  
+  // 마우스 클릭 시 (사용자가 다른 작업 시작할 때)
+  document.addEventListener('mousedown', resetAllKeyStates);
+  
+  // 페이지 숨김/보임 상태 변경 시
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      resetAllKeyStates();
+    }
+  });
+  
+  // 브라우저 뒤로가기/앞으로가기 등 내비게이션 이벤트
+  window.addEventListener('beforeunload', resetAllKeyStates);
+  window.addEventListener('pagehide', resetAllKeyStates);
+  
+  // ESC 키로 강제 리셋
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      resetAllKeyStates();
+    }
   });
 
   // 키 상태에 따른 부드러운 이동 처리 함수
   function handleKeyboardMovement() {
+    // FPS 모드일 때는 키보드 이동 처리하지 않음
+    if (fpsControls && fpsControls.enabled) return;
+    
+    // 페이지에 포커스가 없으면 키 상태 리셋하고 이동 중단
+    if (document.hidden || !document.hasFocus()) {
+      resetAllKeyStates();
+      return;
+    }
+    
     let moved = false;
     
     // Shift 키가 눌린 경우 이동속도 2배 적용
@@ -2399,6 +2451,61 @@ function initApp() {
       });
     }
   }
+
+  // 조명 토글 시스템
+  let lightingEnabled = true; // 기본값: 조명 켜짐
+  
+  function toggleLighting() {
+    lightingEnabled = !lightingEnabled;
+    
+    // 버튼 상태 업데이트
+    const toggleButton = document.getElementById('lightingToggle');
+    if (lightingEnabled) {
+      toggleButton.classList.remove('lighting-off');
+      toggleButton.classList.add('lighting-on');
+      toggleButton.setAttribute('data-tooltip', '조명 효과 끄기');
+      toggleButton.querySelector('.icon').textContent = '💡';
+    } else {
+      toggleButton.classList.remove('lighting-on');
+      toggleButton.classList.add('lighting-off');
+      toggleButton.setAttribute('data-tooltip', '조명 효과 켜기');
+      toggleButton.querySelector('.icon').textContent = '🌙';
+    }
+    
+    // 모든 큐브의 머티리얼 업데이트
+    updateAllCubeMaterials();
+    
+    showToast(lightingEnabled ? '조명 효과가 켜졌습니다' : '조명 효과가 꺼졌습니다');
+  }
+  
+  function updateAllCubeMaterials() {
+    // 머티리얼 캐시 클리어 (새 설정에 맞게 재생성)
+    if (typeof materialCache !== 'undefined') {
+      materialCache.clear();
+    }
+    
+    // 모든 Zone의 큐브들 업데이트
+    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+      zoneCubes.forEach(cube => {
+        const currentColor = `#${cube.material.color.getHexString()}`;
+        
+        // 기존 머티리얼 해제
+        if (cube.material) {
+          cube.material.dispose();
+        }
+        
+        // 새 머티리얼 적용
+        if (lightingEnabled) {
+          cube.material = new THREE.MeshLambertMaterial({ color: currentColor });
+        } else {
+          cube.material = new THREE.MeshBasicMaterial({ color: currentColor });
+        }
+      });
+    }
+  }
+  
+  // 조명 토글 버튼 이벤트 리스너
+  document.getElementById('lightingToggle').addEventListener('click', toggleLighting);
 
   // Zone Frustum Culling 시스템
   function performZoneFrustumCulling() {
