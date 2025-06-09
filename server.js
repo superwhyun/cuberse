@@ -212,6 +212,24 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 전체 씬 리셋 이벤트 (스페이스 내 브로드캐스트)
+  socket.on('reset scene', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      console.log(`[SCENE] 씬 리셋: spaceId=${spaceId}, 발신자=${socket.id}`);
+      spaceManager.emitToSpace(spaceId, 'reset scene', data);
+    }
+  });
+
+  // 새 씬 로드 이벤트 (스페이스 내 브로드캐스트)
+  socket.on('load new scene', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      console.log(`[SCENE] 새 씬 로드: spaceId=${spaceId}, 발신자=${socket.id}`);
+      spaceManager.emitToSpace(spaceId, 'load new scene', data);
+    }
+  });
+
   // 연결 해제 처리
   socket.on('disconnect', () => {
     const userId = spaceManager.socketToUser.get(socket.id);

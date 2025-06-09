@@ -29,7 +29,7 @@ export class FPSControls {
     if (!this.playerObject.children.includes(this.camera)) {
       this.playerObject.add(this.camera);
     }
-    this.baseCameraY = 1.6; // head bobbing 기준 y 위치 (카메라 로컬 y)
+    this.baseCameraY = 1.0; // head bobbing 기준 y 위치 (카메라 로컬 y) - 낮춤
     
     // 카메라를 플레이어 머리 위치(눈높이)로 정확히 설정
     this.camera.position.set(0, this.baseCameraY, 0);
@@ -41,7 +41,7 @@ export class FPSControls {
     this.sensitivity = 0.002; // 감도 2배 증가 (0.001 → 0.002)
 
     // 이동 관련
-    this.moveSpeed = 0.04; // 이동 속도 절반으로 감소 (0.075 → 0.04)
+    this.moveSpeed = 0.08; // 이동 속도 2배 증가 (0.04 → 0.08)
     this.moveForward = false;
     this.moveBackward = false;
     this.moveLeft = false;
@@ -53,7 +53,7 @@ export class FPSControls {
     this.gravity = -0.004;
     this.jumpSpeed = 0.12;
     this.isOnGround = false;
-    this.playerHeight = 1.7; // 플레이어 높이 (실린더 높이와 일치 권장)
+    this.playerHeight = 1.0; // 플레이어 높이 (실린더 높이와 일치 권장)
     this.isJumpKeyDown = false;
     this.isJumping = false;
 
@@ -69,7 +69,7 @@ export class FPSControls {
 
     // 실린더 충돌 기본값 (플레이어 크기에 맞게 조정)
     this.cylinderRadius = 0.3;
-    this.cylinderHeight = 1.6;
+    this.cylinderHeight = 1.0; // 플레이어 높이 낮춤
 
     // Head Bob 효과 관련 (기존과 다르게 카메라 로컬 y에만 적용)
     this.headBobAmplitude = 0.08; // 진폭 증가 (0.04 → 0.08)
@@ -417,8 +417,8 @@ export class FPSControls {
     this.isMoving = forwardAmount !== 0 || rightAmount !== 0;
 
     if (this.isMoving) {
-      // Shift 키가 눌린 경우 이동속도 2배 적용
-      const currentMoveSpeed = this.isShiftPressed ? this.moveSpeed * 2 : this.moveSpeed;
+      // Shift 키가 눌린 경우 이동속도 1.5배 적용 (뛰기)
+      const currentMoveSpeed = this.isShiftPressed ? this.moveSpeed * 1.5 : this.moveSpeed;
       
       // 2. yaw 기준으로 방향 벡터 계산 (Three.js 좌표계: -Z가 forward)
       const forward = new THREE.Vector3(
@@ -562,8 +562,8 @@ export class FPSControls {
     if (this.isMoving && this.isOnGround) {
       // Shift 키 눌렸을 때는 주파수는 동일하게 유지하고 진폭만 약간 증가
       const currentFrequency = this.headBobFrequency;
-      const currentAmplitude = this.isShiftPressed ? this.headBobAmplitude * 1.3 : this.headBobAmplitude;
-      const currentMoveSpeed = this.isShiftPressed ? this.moveSpeed * 2 : this.moveSpeed;
+      const currentAmplitude = this.isShiftPressed ? this.headBobAmplitude * 1.2 : this.headBobAmplitude;
+      const currentMoveSpeed = this.isShiftPressed ? this.moveSpeed * 1.5 : this.moveSpeed;
       this.headBobPhase += currentFrequency * currentMoveSpeed;
       const bobOffset = Math.abs(Math.sin(this.headBobPhase)) * currentAmplitude;
       this.camera.position.y = this.baseCameraY + bobOffset;

@@ -223,6 +223,12 @@ function initApp() {
   }
   
   // Socket.IO 초기화 (Zone 함수들이 정의된 후)
+  // 전역 변수 선언
+  let isOwner = false;
+  let myId = localStorage.getItem('cuberse_current_user');
+  let userListCache = [];
+  let hasRequestedRoomInfo = false; // 방 정보 요청 플래그
+  
   function setupSocketIO() {
     try {
       if (window.io) {
@@ -239,10 +245,6 @@ function initApp() {
         });
 
         // --- 신규 참가자: 방 정보 요청 ---
-        let isOwner = false;
-        let myId = localStorage.getItem('cuberse_current_user');
-        let userListCache = [];
-        let hasRequestedRoomInfo = false; // 방 정보 요청 플래그
         
         socket.on('user list', (payload) => {
           // payload: { spaceId, userList }
@@ -362,6 +364,9 @@ function initApp() {
             scene.add(cube);
             addCubeToZone(data.zoneX, data.zoneY, cube);
             updateFpsObstacles();
+            
+            // 원격 큐브 추가도 자동저장 (주인이 아닌 사용자 작업도 저장)
+            autoSaveCurrentSpace();
           }
         });
         
@@ -419,6 +424,9 @@ function initApp() {
             
             updateFpsObstacles();
             showToast('다른 사용자가 모델을 배치했습니다.');
+            
+            // 원격 모델 배치도 자동저장
+            autoSaveCurrentSpace();
           }
         });
         
@@ -433,7 +441,41 @@ function initApp() {
             if (target) {
               scene.remove(target);
               removeCubeFromZone(data.zoneX, data.zoneY, target, false);
+              
+              // 원격 큐브 삭제도 자동저장
+              autoSaveCurrentSpace();
             }
+          }
+        });
+        
+        // 전체 씬 리셋 이벤트 수신
+        socket.on('reset scene', (data) => {
+          if (data.spaceId === spaceId) {
+            console.log('[SCENE] 전체 씬 리셋 수신');
+            
+            // 모든 Zone의 기존 큐브들 제거
+            for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+              zoneCubes.forEach(cube => scene.remove(cube));
+              zoneCubes.length = 0;
+            }
+            
+            updateFpsObstacles();
+            showToast('방장이 새로운 모델을 로딩하고 있습니다...');
+          }
+        });
+        
+        // 새 씬 데이터 로드 이벤트 수신
+        socket.on('load new scene', (data) => {
+          if (data.spaceId === spaceId && data.sceneData) {
+            console.log('[SCENE] 새 씬 데이터 로드 수신');
+            
+            // 로컬 저장소에 새 데이터 저장
+            saveSpace(spaceId, data.sceneData);
+            
+            // 새 씬 데이터 로드
+            loadSceneFromData(data.sceneData);
+            
+            showToast('새로운 모델이 로드되었습니다.');
           }
         });
         
@@ -1399,6 +1441,8 @@ function initApp() {
         isRightDragging = false;
         if (deletedCubesInDrag.size > 0) {
           showToast(`${deletedCubesInDrag.size}개 큐브가 삭제되었습니다.`);
+          // 드래그 삭제 완료 후 자동저장
+          autoSaveCurrentSpace();
         }
         deletedCubesInDrag.clear();
       }
@@ -2076,7 +2120,7 @@ function initApp() {
     });
   }
 
-  // Drag and drop load functionality
+  // Drag and drop load functionality (주인만 가능)
   renderer.domElement.addEventListener('dragover', (event) => {
     event.preventDefault(); // Allow dropping
   });
@@ -2084,6 +2128,12 @@ function initApp() {
   renderer.domElement.addEventListener('drop', (event) => {
     event.preventDefault();
     event.stopPropagation();
+
+    // 주인 권한 체크 (실시간 서버 연결 안 된 경우는 항상 주인으로 간주)
+    if (isRealtimeAvailable && !isOwner) {
+      showToast('JSON 파일 업로드는 방 주인만 가능합니다.', true);
+      return;
+    }
 
     const file = event.dataTransfer.files[0];
     if (file && file.type === 'application/json') {
@@ -2097,9 +2147,26 @@ function initApp() {
           console.log('로드된 데이터:', loadedData); // 디버깅
 
           // 모든 Zone의 기존 큐브들 제거
+          console.log('[SCENE] 기존 씬 정리 시작');
           for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+            console.log(`[SCENE] Zone ${zoneKey}에서 ${zoneCubes.length}개 큐브 제거`);
             zoneCubes.forEach(cube => scene.remove(cube));
             zoneCubes.length = 0; // 배열 비우기
+          }
+          
+          // Zone 데이터 완전 초기화
+          Object.keys(zoneData).forEach(key => {
+            zoneData[key] = [];
+          });
+          
+          console.log('[SCENE] 기존 씬 정리 완료');
+          
+          // 실시간 동기화: 모든 게스트에게 전체 씬 리셋 알림
+          if (isRealtimeAvailable && socket) {
+            console.log('[SCENE] 씬 리셋 이벤트 전송:', spaceId);
+            socket.emit('reset scene', { spaceId });
+          } else {
+            console.log('[SCENE] 실시간 서버 연결 없음 - 리셋 이벤트 전송 안 함');
           }
           
           // 새로운 Zone 데이터가 있는지 확인
@@ -2132,7 +2199,22 @@ function initApp() {
                 cube.gridY = Math.round((cubeData.y / cubeSize) - 0.5);
                 cube.gridZ = Math.round(localZ / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
                 
+                // 테두리 추가
+                const edges = new THREE.EdgesGeometry(geometry);
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                  color: 0x000000,
+                  linewidth: 1,
+                  transparent: true,
+                  opacity: 0.3
+                });
+                const wireframe = new THREE.LineSegments(edges, lineMaterial);
+                wireframe.raycast = () => {}; // raycast 비활성화
+                cube.add(wireframe);
+                
                 scene.add(cube);
+                
+                // Zone에 추가
+                addCubeToZone(zoneX, zoneY, cube);
                 
                 // Zone에 추가
                 addCubeToZone(zoneX, zoneY, cube);
@@ -2163,6 +2245,23 @@ function initApp() {
           }
           
           autoSaveCurrentSpace();
+          
+          // 실시간 동기화: 새 씬 데이터를 모든 게스트에게 전송
+          if (isRealtimeAvailable && socket) {
+            const newSceneData = loadSpace(spaceId);
+            if (newSceneData) {
+              console.log('[SCENE] 새 씬 데이터 전송:', { 
+                spaceId, 
+                zoneCount: Object.keys(newSceneData).filter(k => k !== 'currentZone').length 
+              });
+              socket.emit('load new scene', { spaceId, sceneData: newSceneData });
+            } else {
+              console.log('[SCENE] 새 씬 데이터가 없음');
+            }
+          } else {
+            console.log('[SCENE] 실시간 서버 연결 없음 - 새 씬 데이터 전송 안 함');
+          }
+          
           hideLoading();
           showToast('파일이 성공적으로 로드되었습니다');
           
