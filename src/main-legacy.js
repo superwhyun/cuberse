@@ -2284,12 +2284,56 @@ function initApp() {
     }
   });
 
+  // Zone Frustum Culling 시스템
+  function performZoneFrustumCulling() {
+    // 카메라 frustum 계산
+    const frustum = new THREE.Frustum();
+    const cameraMatrix = new THREE.Matrix4();
+    cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(cameraMatrix);
+    
+    // 각 Zone별로 frustum 체크
+    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+      if (zoneCubes.length === 0) continue;
+      
+      // Zone 경계 박스 계산
+      const [zoneX, zoneY] = zoneKey.split(',').map(Number);
+      const zoneCenterX = zoneX * ZONE_SIZE;
+      const zoneCenterZ = zoneY * ZONE_SIZE;
+      
+      // Zone 영역을 포함하는 박스 생성 (여유 공간 포함)
+      const zoneBox = new THREE.Box3(
+        new THREE.Vector3(zoneCenterX - ZONE_SIZE/2, -50, zoneCenterZ - ZONE_SIZE/2),
+        new THREE.Vector3(zoneCenterX + ZONE_SIZE/2, 200, zoneCenterZ + ZONE_SIZE/2)
+      );
+      
+      // Zone이 frustum 안에 있는지 체크
+      const isVisible = frustum.intersectsBox(zoneBox);
+      
+      // Zone 큐브들의 씬 추가/제거 관리
+      zoneCubes.forEach(cube => {
+        const isInScene = scene.children.includes(cube);
+        
+        if (isVisible && !isInScene) {
+          // 보여야 하는데 씬에 없음 → 추가
+          scene.add(cube);
+        } else if (!isVisible && isInScene) {
+          // 안 보여도 되는데 씬에 있음 → 제거
+          scene.remove(cube);
+        }
+      });
+    }
+  }
+
   // 렌더 루프
   function animate() {
     requestAnimationFrame(animate);
     
     // 카메라 위치 기반 Zone 그리드 자동 생성 체크
     checkAndCreateNearbyZones();
+    
+    // Zone Frustum Culling 수행
+    performZoneFrustumCulling();
     
     // FPSControls가 활성화된 경우 FPS 이동 처리
     if (fpsControls && fpsControls.enabled) {
