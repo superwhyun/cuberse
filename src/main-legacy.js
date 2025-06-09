@@ -90,6 +90,54 @@ function initApp() {
   const ZONE_SIZE = 20; // 각 Zone은 20x20
   const ZONE_DIVISIONS = 20;
   
+  // 카메라 위치 기반 Zone 그리드 자동 생성
+  let lastCheckedCameraPos = { x: 0, z: 0 };
+  const CHECK_DISTANCE = 5; // 5 유닛 이동할 때마다 체크
+  
+  function checkAndCreateNearbyZones() {
+    // 카메라가 지면에서 너무 멀리 있으면 Zone 생성하지 않음
+    const MAX_HEIGHT_FOR_ZONE_CREATION = 50; // 높이 50 이상에서는 Zone 생성 안 함
+    if (camera.position.y > MAX_HEIGHT_FOR_ZONE_CREATION) {
+      return;
+    }
+    
+    // 카메라가 충분히 이동했는지 확인
+    const currentPos = camera.position;
+    const distance = Math.sqrt(
+      Math.pow(currentPos.x - lastCheckedCameraPos.x, 2) + 
+      Math.pow(currentPos.z - lastCheckedCameraPos.z, 2)
+    );
+    
+    if (distance < CHECK_DISTANCE) return;
+    
+    // 카메라 위치를 기준으로 필요한 Zone들 계산
+    const cameraZoneX = Math.floor(currentPos.x / ZONE_SIZE);
+    const cameraZoneZ = Math.floor(currentPos.z / ZONE_SIZE);
+    
+    // 카메라 주변 5x5 Zone 영역의 그리드 생성
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const zoneX = cameraZoneX + dx;
+        const zoneZ = cameraZoneZ + dz;
+        const zoneKey = getZoneKey(zoneX, zoneZ);
+        
+        // 그리드가 없으면 생성
+        if (!zoneGrids.has(zoneKey)) {
+          createZoneGrid(zoneX, zoneZ);
+        }
+        
+        // Zone 텍스트도 생성
+        if (!zoneTexts.has(zoneKey)) {
+          createZoneText(zoneX, zoneZ);
+        }
+      }
+    }
+    
+    // 마지막 체크 위치 업데이트
+    lastCheckedCameraPos.x = currentPos.x;
+    lastCheckedCameraPos.z = currentPos.z;
+  }
+
   // Zone별 큐브 데이터 저장
   const zoneData = {};
   
@@ -591,27 +639,10 @@ function initApp() {
     gridHelper.position.set(zoneX * ZONE_SIZE, 0, zoneY * ZONE_SIZE);
     scene.add(gridHelper);
     
-    // 바닥 면 생성 (활성 Zone만)
-    let floorPlane = null;
-    if (isActive) {
-      const floorGeometry = new THREE.PlaneGeometry(ZONE_SIZE, ZONE_SIZE);
-      const floorMaterial = new THREE.MeshBasicMaterial({ 
-        color: 0x4f46e5, 
-        transparent: true, 
-        opacity: 0.1,
-        side: THREE.DoubleSide
-      });
-      floorPlane = new THREE.Mesh(floorGeometry, floorMaterial);
-      floorPlane.rotation.x = -Math.PI / 2; // 수평으로 회전
-      floorPlane.position.set(zoneX * ZONE_SIZE, 0.01, zoneY * ZONE_SIZE); // 약간 위에
-      scene.add(floorPlane);
-    }
+    // 바닥 면 생성하지 않음 - 어디든 편집 가능
     
     const zoneKey = getZoneKey(zoneX, zoneY);
     zoneGrids.set(zoneKey, gridHelper);
-    if (floorPlane) {
-      zoneFloors.set(zoneKey, floorPlane);
-    }
     
     return gridHelper;
   }
@@ -626,14 +657,14 @@ function initApp() {
     // 더 이상 활성 Zone 바닥 표시하지 않음
   }
   
-  // 현재 Zone 그리드 생성 (활성)
-  createZoneGrid(currentZoneX, currentZoneY, true);
+  // 현재 Zone 그리드 생성
+  createZoneGrid(currentZoneX, currentZoneY);
   
-  // 인접 Zone들 그리드도 미리 생성 (비활성)
+  // 인접 Zone들 그리드도 미리 생성
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       if (dx === 0 && dy === 0) continue;
-      createZoneGrid(currentZoneX + dx, currentZoneY + dy, false);
+      createZoneGrid(currentZoneX + dx, currentZoneY + dy);
     }
   }
   
@@ -858,16 +889,8 @@ function initApp() {
   }
   
   function createPlacementCursor() {
-    placementCursor = document.createElement('div');
-    placementCursor.className = 'placement-cursor';
-    
-    const width = (placementBounds.maxX - placementBounds.minX + 1) * 20; // 20px per unit
-    const height = (placementBounds.maxZ - placementBounds.minZ + 1) * 20;
-    
-    placementCursor.style.width = width + 'px';
-    placementCursor.style.height = height + 'px';
-    
-    document.body.appendChild(placementCursor);
+    // HTML 커서 생성하지 않음 - 3D 미리보기만 사용
+    placementCursor = null;
   }
   
   function placeModel(intersectionX, intersectionZ) {
@@ -1077,8 +1100,8 @@ function initApp() {
     // FPS 모드일 때는 편집 기능 건너뜀
     if (fpsControls && fpsControls.enabled) return;
     
-    // 모델 배치 모드인 경우 커서 위치 업데이트
-    if (placementMode && placementCursor) {
+    // 모델 배치 모드인 경우 미리보기 업데이트
+    if (placementMode) {
       // 바닥면과의 교차점 계산하여 격자에 스냅
       const rect = renderer.domElement.getBoundingClientRect();
       const mouse = new THREE.Vector2(
@@ -1097,21 +1120,7 @@ function initApp() {
         // 미리보기 업데이트 (월드 좌표 직접 전달)
         updatePlacementPreview(intersectPoint.x, intersectPoint.z);
         
-        // 격자에 스냅된 월드 좌표 계산 (커서용)
-        const gridX = Math.floor((intersectPoint.x - currentZoneX * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-        const gridZ = Math.floor((intersectPoint.z - currentZoneY * ZONE_SIZE) / cubeSize + ZONE_DIVISIONS / 2 - 0.5);
-        const snappedWorldX = (currentZoneX * ZONE_SIZE) + (gridX - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-        const snappedWorldZ = (currentZoneY * ZONE_SIZE) + (gridZ - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
-        
-        // 월드 좌표를 화면 좌표로 변환 (커서용)
-        const worldPos = new THREE.Vector3(snappedWorldX, 0, snappedWorldZ);
-        worldPos.project(camera);
-        
-        const screenX = (worldPos.x * 0.5 + 0.5) * rect.width + rect.left;
-        const screenY = (-worldPos.y * 0.5 + 0.5) * rect.height + rect.top;
-        
-        placementCursor.style.left = screenX + 'px';
-        placementCursor.style.top = screenY + 'px';
+        // HTML 커서 업데이트는 하지 않음 (placementCursor가 null이므로)
       }
     }
     
@@ -1156,11 +1165,8 @@ function initApp() {
                 const nextY = startGridY + Math.round(dragStartFace.y) * i;
                 const nextZ = startGridZ + Math.round(dragStartFace.z) * i;
                 
-                if (
-                  nextX >= 0 && nextX < ZONE_DIVISIONS &&
-                  nextY >= 0 &&
-                  nextZ >= 0 && nextZ < ZONE_DIVISIONS
-                ) {
+                // Zone 제한 없이 큐브 생성
+                if (nextY >= 0) {
                   addCube(nextX, nextY, nextZ, cubeColor);
                 }
               }
@@ -1527,10 +1533,10 @@ function initApp() {
         currentZoneY = newZoneY;
         updateFpsObstacles();
         
-        // 새 Zone 그리드 생성 (없다면) - 비활성으로 생성
+        // 새 Zone 그리드 생성 (없다면)
         const zoneKey = getCurrentZoneKey();
         if (!zoneGrids.has(zoneKey)) {
-          createZoneGrid(currentZoneX, currentZoneY, false);
+          createZoneGrid(currentZoneX, currentZoneY);
         }
         
         // 새 Zone 텍스트 생성 (없다면)
@@ -1538,7 +1544,7 @@ function initApp() {
           createZoneText(currentZoneX, currentZoneY);
         }
         
-        // 인접 Zone들도 생성 - 모두 비활성으로
+        // 인접 Zone들도 생성
         for (let dx = -1; dx <= 1; dx++) {
           for (let dy = -1; dy <= 1; dy++) {
             const adjacentX = currentZoneX + dx;
@@ -1547,7 +1553,7 @@ function initApp() {
             
             // 그리드 생성
             if (!zoneGrids.has(adjacentKey)) {
-              createZoneGrid(adjacentX, adjacentY, false);
+              createZoneGrid(adjacentX, adjacentY);
             }
             
             // 텍스트 생성
@@ -1954,6 +1960,9 @@ function initApp() {
   // 렌더 루프
   function animate() {
     requestAnimationFrame(animate);
+    
+    // 카메라 위치 기반 Zone 그리드 자동 생성 체크
+    checkAndCreateNearbyZones();
     
     // FPSControls가 활성화된 경우 FPS 이동 처리
     if (fpsControls && fpsControls.enabled) {
