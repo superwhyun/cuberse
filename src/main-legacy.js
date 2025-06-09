@@ -825,31 +825,37 @@ function initApp() {
       return;
     }
 
-    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-    const material = new THREE.MeshLambertMaterial({ color });
-    const cube = new THREE.Mesh(geometry, material);
-    
-    // 테두리 추가 (wireframe)
-    const edges = new THREE.EdgesGeometry(geometry);
-    const lineMaterial = new THREE.LineBasicMaterial({ 
-      color: 0x000000, // 검은색 테두리
-      linewidth: 1,
-      transparent: true,
-      opacity: 0.3
-    });
-    const wireframe = new THREE.LineSegments(edges, lineMaterial);
-    wireframe.raycast = () => {}; // raycast 비활성화
-    cube.add(wireframe);
-    
-    // Zone 좌표계 적용
+    // 큐브 위치 계산
     const worldX = (targetZoneX * ZONE_SIZE) + (localX - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
     const worldZ = (targetZoneY * ZONE_SIZE) + (localZ - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
+    const worldY = (y + 0.5) * cubeSize;
     
-    cube.position.set(
-      worldX,
-      (y + 0.5) * cubeSize,
-      worldZ
-    );
+    // 카메라와의 거리 기반으로 적절한 LOD 지오메트리 선택
+    const cubePosition = new THREE.Vector3(worldX, worldY, worldZ);
+    const distance = camera.position.distanceTo(cubePosition);
+    const lodLevel = calculateGeometryLOD(distance);
+    const geometry = getGeometryForLOD(lodLevel);
+    
+    const material = new THREE.MeshLambertMaterial({ color });
+    const cube = new THREE.Mesh(geometry, material);
+    cube._geometryLod = lodLevel; // LOD 레벨 저장
+    
+    // 점 형태가 아닐 때만 테두리 추가
+    if (lodLevel !== 'point') {
+      const edges = new THREE.EdgesGeometry(geometry);
+      const lineMaterial = new THREE.LineBasicMaterial({ 
+        color: 0x000000,
+        linewidth: 1,
+        transparent: true,
+        opacity: lodLevel === 'high' ? 0.3 : 0.2
+      });
+      const wireframe = new THREE.LineSegments(edges, lineMaterial);
+      wireframe.raycast = () => {}; // raycast 비활성화
+      cube.add(wireframe);
+    }
+    
+    // Zone 좌표계 적용
+    cube.position.set(worldX, worldY, worldZ);
     
     // grid 좌표를 cube 객체에 저장
     cube.gridX = localX;
@@ -2284,6 +2290,116 @@ function initApp() {
     }
   });
 
+  // Geometry LOD 시스템
+  const LOD_DISTANCES = {
+    HIGH: 25,     // 25 유닛 이내: 고해상도 큐브
+    MEDIUM: 60,   // 60 유닛 이내: 중해상도 큐브  
+    LOW: 120,     // 120 유닛 이내: 저해상도 큐브
+    POINT: 200    // 200 유닛 이내: 점으로 표시
+  };
+  
+  // 지오메트리 캐시 (성능 최적화)
+  const geometryCache = new Map();
+  
+  function getGeometryForLOD(lodLevel) {
+    if (geometryCache.has(lodLevel)) {
+      return geometryCache.get(lodLevel);
+    }
+    
+    let geometry;
+    switch (lodLevel) {
+      case 'high':
+        // 고해상도: 일반 큐브 (기본)
+        geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+        break;
+      case 'medium':
+        // 중해상도: 낮은 세분화
+        geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize, 1, 1, 1);
+        break;
+      case 'low':
+        // 저해상도: 더 간단한 큐브
+        geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize, 1, 1, 1);
+        break;
+      case 'point':
+        // 매우 멀리: 점으로 표시
+        geometry = new THREE.SphereGeometry(cubeSize * 0.2, 4, 3);
+        break;
+      default:
+        geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+    }
+    
+    geometryCache.set(lodLevel, geometry);
+    return geometry;
+  }
+  
+  function calculateGeometryLOD(distance) {
+    if (distance <= LOD_DISTANCES.HIGH) {
+      return 'high';
+    } else if (distance <= LOD_DISTANCES.MEDIUM) {
+      return 'medium';
+    } else if (distance <= LOD_DISTANCES.LOW) {
+      return 'low';
+    } else if (distance <= LOD_DISTANCES.POINT) {
+      return 'point';
+    } else {
+      return 'point'; // 매우 멀면 점
+    }
+  }
+  
+  function performGeometryLOD() {
+    const cameraPosition = camera.position;
+    
+    // 모든 Zone의 큐브들에 대해 LOD 적용
+    for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+      zoneCubes.forEach(cube => {
+        // 씬에 있는 큐브만 처리 (Frustum Culling과 연계)
+        if (!scene.children.includes(cube)) return;
+        
+        // 카메라와 큐브 간 거리 계산
+        const distance = cameraPosition.distanceTo(cube.position);
+        
+        // 현재 LOD 레벨 계산
+        const newLodLevel = calculateGeometryLOD(distance);
+        
+        // 큐브의 현재 LOD와 다르면 지오메트리 교체
+        if (cube._geometryLod !== newLodLevel) {
+          const newGeometry = getGeometryForLOD(newLodLevel);
+          
+          // 기존 지오메트리 해제 (메모리 누수 방지)
+          if (cube.geometry && !geometryCache.has(cube._geometryLod)) {
+            cube.geometry.dispose();
+          }
+          
+          cube.geometry = newGeometry;
+          cube._geometryLod = newLodLevel;
+          
+          // 테두리도 업데이트
+          if (cube.children.length > 0) {
+            // 기존 테두리 제거
+            const wireframe = cube.children[0];
+            cube.remove(wireframe);
+            if (wireframe.geometry) wireframe.geometry.dispose();
+            if (wireframe.material) wireframe.material.dispose();
+          }
+          
+          // 점 형태가 아닐 때만 테두리 추가
+          if (newLodLevel !== 'point') {
+            const edges = new THREE.EdgesGeometry(newGeometry);
+            const lineMaterial = new THREE.LineBasicMaterial({ 
+              color: 0x000000,
+              linewidth: 1,
+              transparent: true,
+              opacity: newLodLevel === 'high' ? 0.3 : 0.2
+            });
+            const wireframe = new THREE.LineSegments(edges, lineMaterial);
+            wireframe.raycast = () => {}; // raycast 비활성화
+            cube.add(wireframe);
+          }
+        }
+      });
+    }
+  }
+
   // Zone Frustum Culling 시스템
   function performZoneFrustumCulling() {
     // 카메라 frustum 계산
@@ -2334,6 +2450,11 @@ function initApp() {
     
     // Zone Frustum Culling 수행
     performZoneFrustumCulling();
+    
+    // Geometry LOD 수행 (500ms마다 실행 - 지오메트리 교체는 비용이 높음)
+    if (Math.floor(performance.now() / 500) % 2 === 0) {
+      performGeometryLOD();
+    }
     
     // FPSControls가 활성화된 경우 FPS 이동 처리
     if (fpsControls && fpsControls.enabled) {
