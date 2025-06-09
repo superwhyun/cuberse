@@ -18,7 +18,19 @@
     </div>
   </div>
   <div id="color-picker">
-    <button id="homeButton" style="margin-bottom: 16px;">🏠 홈으로</button>
+    <!-- 상단 버튼 그룹 -->
+    <div class="button-group">
+      <button id="jumpInButton" class="icon-button" data-tooltip="FPS 모드로 전환">
+        <span class="icon">🎮</span>
+      </button>
+      <button id="downloadButton" class="icon-button" data-tooltip="현재 작업을 JSON 파일로 다운로드">
+        <span class="icon">💾</span>
+      </button>
+      <button id="homeButton" class="icon-button" data-tooltip="워크스페이스 목록으로 이동">
+        <span class="icon">🏠</span>
+      </button>
+    </div>
+    
     <h3>큐브 색상 선택</h3>
     
     <div id="preset-colors">
@@ -42,7 +54,6 @@
         <div class="drop-zone-subtext">JSON 파일을 여기에 놓으세요</div>
       </div>
     </div>
-    <button id="downloadButton">📥 다운로드</button>
     
     <!-- 조작키 설명 섹션 -->
     <div id="controls-guide">

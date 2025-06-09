@@ -44,6 +44,84 @@ body {
   color: #333;
 }
 
+/* 상단 버튼 그룹 스타일 */
+.button-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  width: 100%;
+  justify-content: center;
+}
+
+.icon-button {
+  position: relative;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  width: 48px;
+  height: 48px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+}
+
+.icon-button .icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* 툴팁 스타일 */
+.icon-button::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: -35px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 1000;
+}
+
+.icon-button::after {
+  content: '';
+  position: absolute;
+  bottom: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 1000;
+}
+
+.icon-button:hover::before,
+.icon-button:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
 #cubeColor {
   /* unchanged */
 
@@ -93,30 +171,6 @@ body {
 .color-preset[style*="ffffff"]:hover,
 .color-preset[style*="ffffff"].selected {
   border-color: #6366f1;
-}
-
-#downloadButton {
-  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 2px 8px 0 rgba(16, 185, 129, 0.2);
-  transition: all 0.2s ease;
-  margin-top: 16px;
-}
-
-#downloadButton:hover {
-  background: linear-gradient(90deg, #059669 0%, #047857 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px 0 rgba(16, 185, 129, 0.3);
-}
-
-#downloadButton:active {
-  transform: translateY(0);
 }
 
 /* 조작키 가이드 스타일 */
@@ -178,30 +232,6 @@ kbd {
   text-align: center;
   display: inline-block;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
-#homeButton {
-  background: linear-gradient(90deg, #6366f1 0%, #60a5fa 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 2px 8px 0 rgba(99, 102, 241, 0.2);
-  transition: all 0.2s ease;
-  width: 100%;
-}
-
-#homeButton:hover {
-  background: linear-gradient(90deg, #5b21b6 0%, #2563eb 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px 0 rgba(99, 102, 241, 0.3);
-}
-
-#homeButton:active {
-  transform: translateY(0);
 }
 
 /* ---- 로그인/회원가입/공간 카드 스타일 ---- */

@@ -331,6 +331,18 @@ function initApp() {
             const material = new THREE.MeshLambertMaterial({ color: data.color });
             const cube = new THREE.Mesh(geometry, material);
             
+            // 테두리 추가
+            const edges = new THREE.EdgesGeometry(geometry);
+            const lineMaterial = new THREE.LineBasicMaterial({ 
+              color: 0x000000,
+              linewidth: 1,
+              transparent: true,
+              opacity: 0.3
+            });
+            const wireframe = new THREE.LineSegments(edges, lineMaterial);
+            wireframe.raycast = () => {}; // raycast 비활성화
+            cube.add(wireframe);
+            
             // Zone 좌표계 적용
             const worldX = (data.zoneX * ZONE_SIZE) + (data.x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
             const worldZ = (data.zoneY * ZONE_SIZE) + (data.z - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
@@ -372,6 +384,18 @@ function initApp() {
               const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
               const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
               const cube = new THREE.Mesh(geometry, material);
+              
+              // 테두리 추가
+              const edges = new THREE.EdgesGeometry(geometry);
+              const lineMaterial = new THREE.LineBasicMaterial({ 
+                color: 0x000000,
+                linewidth: 1,
+                transparent: true,
+                opacity: 0.3
+              });
+              const wireframe = new THREE.LineSegments(edges, lineMaterial);
+              wireframe.raycast = () => {}; // raycast 비활성화
+              cube.add(wireframe);
               
               // Zone 좌표계 적용
               const worldX = (cubeData.zoneX * ZONE_SIZE) + (cubeData.x - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
@@ -762,6 +786,18 @@ function initApp() {
     const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
     const material = new THREE.MeshLambertMaterial({ color });
     const cube = new THREE.Mesh(geometry, material);
+    
+    // 테두리 추가 (wireframe)
+    const edges = new THREE.EdgesGeometry(geometry);
+    const lineMaterial = new THREE.LineBasicMaterial({ 
+      color: 0x000000, // 검은색 테두리
+      linewidth: 1,
+      transparent: true,
+      opacity: 0.3
+    });
+    const wireframe = new THREE.LineSegments(edges, lineMaterial);
+    wireframe.raycast = () => {}; // raycast 비활성화
+    cube.add(wireframe);
     
     // Zone 좌표계 적용
     const worldX = (targetZoneX * ZONE_SIZE) + (localX - ZONE_DIVISIONS / 2 + 0.5) * cubeSize;
@@ -1467,7 +1503,8 @@ function initApp() {
   // 부드러운 키보드 이동을 위한 키 상태 추적
   const keyStates = {
     w: false, s: false, a: false, d: false,
-    q: false, e: false, c: false, z: false
+    q: false, e: false, c: false, z: false,
+    shift: false // Shift 키 상태 추가
   };
   
   const moveSpeed = 0.2; // 이동 속도 (초당 유닛)
@@ -1539,6 +1576,11 @@ function initApp() {
       keyStates[normalizedKey] = true;
       e.preventDefault(); // 기본 브라우저 동작 방지
     }
+    
+    // Shift 키 처리
+    if (e.key === 'Shift') {
+      keyStates.shift = true;
+    }
   });
 
   window.addEventListener('keyup', (e) => {
@@ -1552,6 +1594,11 @@ function initApp() {
     if (keyStates.hasOwnProperty(normalizedKey)) {
       keyStates[normalizedKey] = false;
       e.preventDefault();
+    }
+    
+    // Shift 키 처리
+    if (e.key === 'Shift') {
+      keyStates.shift = false;
     }
   });
 
@@ -1599,19 +1646,22 @@ function initApp() {
   function handleKeyboardMovement() {
     let moved = false;
     
+    // Shift 키가 눌린 경우 이동속도 2배 적용
+    const currentMoveSpeed = keyStates.shift ? moveSpeed * 2 : moveSpeed;
+    
     // 수평 이동 처리
     if (keyStates.a) {
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const left = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
-      camera.position.addScaledVector(left, moveSpeed);
+      camera.position.addScaledVector(left, currentMoveSpeed);
       moved = true;
     }
     if (keyStates.d) {
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
-      camera.position.addScaledVector(right, moveSpeed);
+      camera.position.addScaledVector(right, currentMoveSpeed);
       moved = true;
     }
     if (keyStates.w) {
@@ -1619,7 +1669,7 @@ function initApp() {
       camera.getWorldDirection(dir);
       dir.y = 0;
       dir.normalize();
-      camera.position.addScaledVector(dir, moveSpeed);
+      camera.position.addScaledVector(dir, currentMoveSpeed);
       moved = true;
     }
     if (keyStates.s) {
@@ -1627,17 +1677,17 @@ function initApp() {
       camera.getWorldDirection(dir);
       dir.y = 0;
       dir.normalize();
-      camera.position.addScaledVector(dir, -moveSpeed);
+      camera.position.addScaledVector(dir, -currentMoveSpeed);
       moved = true;
     }
     
     // 수직 이동 처리
     if (keyStates.c) {
-      camera.position.y += moveSpeed; // 위로 이동
+      camera.position.y += currentMoveSpeed; // 위로 이동
       moved = true;
     }
     if (keyStates.z) {
-      camera.position.y -= moveSpeed; // 아래로 이동
+      camera.position.y -= currentMoveSpeed; // 아래로 이동
       moved = true;
     }
     
@@ -1772,6 +1822,18 @@ function initApp() {
           const material = new THREE.MeshLambertMaterial({ color: cubeData.color });
           const cube = new THREE.Mesh(geometry, material);
           cube.position.set(cubeData.x, cubeData.y, cubeData.z);
+          
+          // 테두리 추가
+          const edges = new THREE.EdgesGeometry(geometry);
+          const lineMaterial = new THREE.LineBasicMaterial({ 
+            color: 0x000000,
+            linewidth: 1,
+            transparent: true,
+            opacity: 0.3
+          });
+          const wireframe = new THREE.LineSegments(edges, lineMaterial);
+          wireframe.raycast = () => {}; // raycast 비활성화
+          cube.add(wireframe);
           
           // gridX, gridY, gridZ 계산해서 설정
           const localX = cubeData.x - (zoneX * ZONE_SIZE);

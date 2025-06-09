@@ -38,14 +38,15 @@ export class FPSControls {
     // 시점 회전 관련
     this.pitch = 0;
     this.yaw = 0;
-    this.sensitivity = 0.001; // 감도 낮춤 (휙휙 날아가는 현상 완화)
+    this.sensitivity = 0.002; // 감도 2배 증가 (0.001 → 0.002)
 
     // 이동 관련
-    this.moveSpeed = 0.075;
+    this.moveSpeed = 0.04; // 이동 속도 절반으로 감소 (0.075 → 0.04)
     this.moveForward = false;
     this.moveBackward = false;
     this.moveLeft = false;
     this.moveRight = false;
+    this.isShiftPressed = false; // Shift 키 상태 추가
 
     // 점프/중력
     this.velocityY = 0;
@@ -71,8 +72,8 @@ export class FPSControls {
     this.cylinderHeight = 1.6;
 
     // Head Bob 효과 관련 (기존과 다르게 카메라 로컬 y에만 적용)
-    this.headBobAmplitude = 0.04; // 진폭 (변경됨)
-    this.headBobFrequency = 1.4;  // 주파수 (변경됨)
+    this.headBobAmplitude = 0.08; // 진폭 증가 (0.04 → 0.08)
+    this.headBobFrequency = 1.4;  // 주파수 원복 (2.0 → 1.4)
     this.headBobPhase = 0;
     this.isMoving = false;
 
@@ -168,24 +169,29 @@ export class FPSControls {
 
     // 현재 카메라의 위치와 방향 저장
     const startCameraPos = this.camera.position.clone();
-    const startCameraRotation = this.camera.rotation.clone();
     
-    // 시작 시선 방향 저장
-    const startPitch = startCameraRotation.x;
-    const startYaw = startCameraRotation.y;
+    // 현재 카메라의 방향을 yaw/pitch로 변환
+    const direction = new THREE.Vector3();
+    this.camera.getWorldDirection(direction);
     
-    // 목표 시선 방향 (수평 정면)
+    // yaw 계산 (수평 회전각도)
+    const currentYaw = Math.atan2(-direction.x, -direction.z);
+    
+    // pitch 계산 (수직 회전각도)
+    const currentPitch = Math.asin(direction.y);
+    
+    // 목표 시선 방향 (수평 정면, yaw는 현재 방향 유지)
     const targetPitch = 0; // 수평 시선
-    const targetYaw = startYaw; // 좌우 회전은 유지
+    const targetYaw = currentYaw; // 현재 바라보는 방향 유지
     
-    // 최종 yaw, pitch 설정 (애니메이션 목표값)
+    // FPS 컨트롤 yaw, pitch 설정
     this.yaw = targetYaw;
-    this.pitch = targetPitch;
+    this.pitch = currentPitch; // 애니메이션으로 0까지 변경
 
-    // 플레이어를 카메라 위치 기준으로 배치 (눈높이 고려해서 플레이어 발 위치 계산)
+    // 플레이어를 카메라 수평 위치에 배치하되 지상에 위치시킴
     const targetPlayerPos = new THREE.Vector3(
       startCameraPos.x,
-      startCameraPos.y - this.baseCameraY + this.cylinderHeight,
+      this.cylinderHeight, // 지상에 서있도록 설정
       startCameraPos.z
     );
     
@@ -201,42 +207,47 @@ export class FPSControls {
       this.playerObject.add(this.camera);
     }
 
-    // 애니메이션 시작 위치 (현재 카메라 위치를 플레이어 로컬 좌표로 변환)
-    const localStartPos = this.playerObject.worldToLocal(startCameraPos.clone());
-    
-    // 애니메이션 목표 위치 (플레이어 눈높이)
-    const targetLocalPos = new THREE.Vector3(0, this.baseCameraY, 0);
-    
-    // 카메라 초기 위치를 애니메이션 시작점으로 설정
-    this.camera.position.copy(localStartPos);
-    this.camera.rotation.set(startPitch, 0, 0); // 시작 pitch 설정
+    // 애니메이션을 위한 시작/목표 위치 계산
+    const startWorldPos = startCameraPos.clone();
+    const targetWorldPos = new THREE.Vector3(
+      targetPlayerPos.x,
+      targetPlayerPos.y + this.baseCameraY, // 플레이어 눈높이
+      targetPlayerPos.z
+    );
 
-    // 부드러운 하강 및 시선 애니메이션
-    const duration = 600; // 600ms (편집모드 전환과 동일하게)
+    // 카메라를 월드 좌표 기준으로 시작 위치에 설정
+    this.camera.position.copy(this.playerObject.worldToLocal(startWorldPos.clone()));
+    this.camera.rotation.set(currentPitch, 0, 0);
+
+    // 부드러운 이동 및 시선 애니메이션
+    const duration = 800; // 800ms
     const startTime = performance.now();
     
     const animateTransition = (currentTime) => {
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
       
-      // easeInOutCubic 곡선
-      const ease = progress < 0.5 
-        ? 4 * progress * progress * progress 
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+      // easeOutQuart (부드러운 감속)
+      const ease = 1 - Math.pow(1 - progress, 4);
       
-      // 위치 보간
-      this.camera.position.lerpVectors(localStartPos, targetLocalPos, ease);
+      // 월드 좌표에서 위치 보간
+      const currentWorldPos = new THREE.Vector3().lerpVectors(startWorldPos, targetWorldPos, ease);
       
-      // 시선 방향 보간 (pitch만, yaw는 플레이어 회전으로 처리)
-      const currentPitch = startPitch + (targetPitch - startPitch) * ease;
-      this.camera.rotation.set(currentPitch, 0, 0);
+      // 플레이어 로컬 좌표로 변환하여 카메라 위치 설정
+      this.camera.position.copy(this.playerObject.worldToLocal(currentWorldPos.clone()));
+      
+      // 시선 방향 보간 (수평으로)
+      const currentAnimatedPitch = currentPitch + (targetPitch - currentPitch) * ease;
+      this.camera.rotation.set(currentAnimatedPitch, 0, 0);
+      this.pitch = currentAnimatedPitch; // FPS 컨트롤 pitch도 동기화
       
       if (progress < 1) {
         requestAnimationFrame(animateTransition);
       } else {
         // 애니메이션 완료 시 최종 설정
-        this.camera.position.copy(targetLocalPos);
-        this.camera.rotation.set(targetPitch, 0, 0);
+        this.camera.position.set(0, this.baseCameraY, 0);
+        this.camera.rotation.set(0, 0, 0);
+        this.pitch = 0; // 최종 pitch 설정
         
         // 중력 및 상태 초기화
         this.velocityY = 0;
@@ -297,6 +308,7 @@ export class FPSControls {
     this.moveBackward = false;
     this.moveLeft = false;
     this.moveRight = false;
+    this.isShiftPressed = false;
     this.isJumpKeyDown = false;
     this.isJumping = false;
   }
@@ -328,6 +340,7 @@ export class FPSControls {
       this.moveBackward = false;
       this.moveLeft = false;
       this.moveRight = false;
+      this.isShiftPressed = false;
       this.isJumpKeyDown = false;
       this.isJumping = false;
       if (this.onExit) this.onExit();
@@ -355,6 +368,10 @@ export class FPSControls {
       case 'KeyS': this.moveBackward = true; break;
       case 'KeyA': this.moveLeft = true; break;
       case 'KeyD': this.moveRight = true; break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        this.isShiftPressed = true;
+        break;
       case 'Space':
         if (!this.isJumpKeyDown && !this.isJumping && this.isOnGround) {
           this.velocityY = this.jumpSpeed;
@@ -374,6 +391,10 @@ export class FPSControls {
       case 'KeyS': this.moveBackward = false; break;
       case 'KeyA': this.moveLeft = false; break;
       case 'KeyD': this.moveRight = false; break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        this.isShiftPressed = false;
+        break;
       case 'Space':
         this.isJumpKeyDown = false;
         break;
@@ -396,6 +417,9 @@ export class FPSControls {
     this.isMoving = forwardAmount !== 0 || rightAmount !== 0;
 
     if (this.isMoving) {
+      // Shift 키가 눌린 경우 이동속도 2배 적용
+      const currentMoveSpeed = this.isShiftPressed ? this.moveSpeed * 2 : this.moveSpeed;
+      
       // 2. yaw 기준으로 방향 벡터 계산 (Three.js 좌표계: -Z가 forward)
       const forward = new THREE.Vector3(
         -Math.sin(this.yaw),
@@ -411,8 +435,8 @@ export class FPSControls {
 
       // 3. 이동 벡터 계산
       const moveVector = new THREE.Vector3();
-      moveVector.addScaledVector(forward, forwardAmount * this.moveSpeed);
-      moveVector.addScaledVector(right, rightAmount * this.moveSpeed);
+      moveVector.addScaledVector(forward, forwardAmount * currentMoveSpeed);
+      moveVector.addScaledVector(right, rightAmount * currentMoveSpeed);
 
       // 4. 충돌 검사 및 스텝업 처리
       const nextPos = this.playerObject.position.clone().add(moveVector);
@@ -536,12 +560,17 @@ export class FPSControls {
 
     // Head Bobbing 효과 (카메라 로컬 y 위치에만 적용)
     if (this.isMoving && this.isOnGround) {
-      this.headBobPhase += this.headBobFrequency * this.moveSpeed;
+      // Shift 키 눌렸을 때는 주파수는 동일하게 유지하고 진폭만 약간 증가
+      const currentFrequency = this.headBobFrequency;
+      const currentAmplitude = this.isShiftPressed ? this.headBobAmplitude * 1.3 : this.headBobAmplitude;
+      const currentMoveSpeed = this.isShiftPressed ? this.moveSpeed * 2 : this.moveSpeed;
+      this.headBobPhase += currentFrequency * currentMoveSpeed;
+      const bobOffset = Math.abs(Math.sin(this.headBobPhase)) * currentAmplitude;
+      this.camera.position.y = this.baseCameraY + bobOffset;
     } else {
       this.headBobPhase = 0;
+      this.camera.position.y = this.baseCameraY;
     }
-    const bobOffset = this.isOnGround ? Math.abs(Math.sin(this.headBobPhase)) * this.headBobAmplitude : 0;
-    this.camera.position.y = this.baseCameraY + bobOffset;
     
     // 카메라 위치 강제 고정 (x, z는 항상 0)
     this.camera.position.x = 0;
