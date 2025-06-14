@@ -16,6 +16,18 @@
       <strong>접속자 목록</strong>
       <ul id="user-list" style="margin:8px 0 0 0;padding:0;list-style:none;font-size:0.95em;"></ul>
     </div>
+    
+    <!-- 비디오 사이드바 -->
+    <div id="video-sidebar" style="position:absolute;top:10px;left:10px;z-index:10;background:rgba(255,255,255,0.95);border:1px solid #ccc;padding:15px;width:200px;border-radius:8px;">
+      <strong style="display:block;margin-bottom:10px;color:#333;">📹 비디오</strong>
+      <div id="video-controls" style="margin-bottom:10px;">
+        <button id="start-video-btn" style="background:#4CAF50;color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px;">카메라 시작</button>
+        <button id="stop-video-btn" style="background:#f44336;color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px;margin-left:5px;display:none;">카메라 정지</button>
+      </div>
+      <div id="video-list" style="max-height:300px;overflow-y:auto;">
+        <!-- 비디오 아이템들이 여기에 추가됨 -->
+      </div>
+    </div>
   </div>
   <div id="color-picker">
     <!-- 상단 버튼 그룹 -->

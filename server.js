@@ -305,6 +305,71 @@ io.on('connection', (socket) => {
     }
   });
 
+  // WebRTC 신호 처리
+  socket.on('webrtc offer', (data) => {
+    console.log('[WebRTC] Offer 수신:', spaceManager.socketToUser.get(socket.id), '→', data.targetUserId);
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      // 특정 사용자에게 offer 전달
+      const space = spaceManager.spaces.get(spaceId);
+      if (space) {
+        const targetSockets = Array.from(space.sockets).filter(sid => 
+          spaceManager.socketToUser.get(sid) === data.targetUserId
+        );
+        console.log('[WebRTC] 대상 소켓 찾기:', data.targetUserId, '→', targetSockets.length, '개');
+        if (targetSockets.length > 0) {
+          io.to(targetSockets[0]).emit('webrtc offer', {
+            fromUserId: spaceManager.socketToUser.get(socket.id),
+            offer: data.offer
+          });
+          console.log('[WebRTC] Offer 전달 완료:', targetSockets[0]);
+        } else {
+          console.log('[WebRTC] 대상 사용자 소켓을 찾을 수 없음:', data.targetUserId);
+        }
+      }
+    } else {
+      console.log('[WebRTC] 스페이스 불일치:', spaceId, 'vs', data.spaceId);
+    }
+  });
+
+  socket.on('webrtc answer', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      // 특정 사용자에게 answer 전달
+      const space = spaceManager.spaces.get(spaceId);
+      if (space) {
+        const targetSockets = Array.from(space.sockets).filter(sid => 
+          spaceManager.socketToUser.get(sid) === data.targetUserId
+        );
+        if (targetSockets.length > 0) {
+          io.to(targetSockets[0]).emit('webrtc answer', {
+            fromUserId: spaceManager.socketToUser.get(socket.id),
+            answer: data.answer
+          });
+        }
+      }
+    }
+  });
+
+  socket.on('webrtc ice-candidate', (data) => {
+    const spaceId = spaceManager.getSocketSpace(socket.id);
+    if (spaceId && data.spaceId === spaceId) {
+      // 특정 사용자에게 ICE candidate 전달
+      const space = spaceManager.spaces.get(spaceId);
+      if (space) {
+        const targetSockets = Array.from(space.sockets).filter(sid => 
+          spaceManager.socketToUser.get(sid) === data.targetUserId
+        );
+        if (targetSockets.length > 0) {
+          io.to(targetSockets[0]).emit('webrtc ice-candidate', {
+            fromUserId: spaceManager.socketToUser.get(socket.id),
+            candidate: data.candidate
+          });
+        }
+      }
+    }
+  });
+
   // 연결 해제 처리
   socket.on('disconnect', () => {
     const userId = spaceManager.socketToUser.get(socket.id);

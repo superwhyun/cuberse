@@ -449,6 +449,11 @@ function initApp() {
             );
             
             if (target) {
+              // 큐브 삭제 전에 비디오 상태 복원 (원격 삭제)
+              if (window.webrtcManager && target.userData.videos) {
+                window.webrtcManager.moveVideosToSidebar(target);
+              }
+              
               scene.remove(target);
               removeCubeFromZone(data.zoneX, data.zoneY, target, false);
               
@@ -497,9 +502,27 @@ function initApp() {
       socket = null;
       isRealtimeAvailable = false;
     }
+    
+    // WebRTC 초기화 (Socket.IO 연결 후)
+    console.log('Socket 상태 확인:', { socket: !!socket, isRealtimeAvailable });
+    if (socket && isRealtimeAvailable) {
+      console.log('WebRTC 초기화 예약됨');
+      setTimeout(() => {
+        console.log('WebRTC 초기화 실행');
+        initWebRTC();
+      }, 1000);
+    } else {
+      console.log('Socket.IO 연결 실패, WebRTC 비활성화');
+      // Socket.IO 없이도 WebRTC 초기화 (테스트용)
+      setTimeout(() => {
+        console.log('Socket.IO 없이 WebRTC 초기화 시도');
+        initWebRTC();
+      }, 1000);
+    }
   }
   
   setupSocketIO();
+  
   
   // Zone 배열에서 씬에 없는 큐브들 정리
   function cleanupZoneArrays() {
@@ -532,7 +555,9 @@ function initApp() {
           x: cube.position.x,
           y: cube.position.y,
           z: cube.position.z,
-          color: `#${cube.material.color.getHexString()}`
+          color: `#${Array.isArray(cube.material) 
+            ? cube.material[0]?.color?.getHexString() || 'ffffff'
+            : cube.material?.color?.getHexString() || 'ffffff'}`
         }));
       }
     }
@@ -557,6 +582,15 @@ function initApp() {
   let dragStartCube = null; // 드래그 시작 큐브
   let dragStartFace = null; // 드래그 시작 면
 
+  // 전역 접근을 위해 window 객체에 노출
+  window.isDragging = isDragging;
+  window.isDraggingCube = isDraggingCube;
+  window.dragStartCube = dragStartCube;
+  window.dragStartFace = dragStartFace;
+  window.wasDraggingJustNow = wasDraggingJustNow;
+  window.clearDragPreview = clearDragPreview;
+  window.zoneData = zoneData; // zoneData도 전역으로 노출
+
   // ---- 3D 환경 구성: 씬, 카메라, 렌더러, 플레이어 본체, FPSControls ----
   // 1. THREE.Scene 생성
   const scene = new THREE.Scene();
@@ -575,8 +609,15 @@ function initApp() {
   // 3. THREE.WebGLRenderer 생성 및 DOM에 추가
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  
+  // 색상 공간 설정으로 비디오 텍스처 색상 개선
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  
   container.appendChild(renderer.domElement);
   console.log('렌더러 생성 및 추가:', renderer);
+  
+  // 전역 접근을 위해 renderer 노출
+  window.renderer = renderer;
 
   // 4. 플레이어 본체(THREE.Object3D) 생성 및 씬에 추가
   //    FPS 모드에서 카메라의 부모가 됨
@@ -1056,7 +1097,7 @@ function initApp() {
   }
 
   // 마우스 클릭으로 큐브 추가 (큐브 위 또는 바닥)
-  renderer.domElement.addEventListener('click', (event) => {
+  renderer.domElement.addEventListener('click', async (event) => {
     // FPS 모드일 때는 편집 기능 건너뜀
     if (fpsControls && fpsControls.enabled) return;
     
@@ -1073,6 +1114,30 @@ function initApp() {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, camera);
 
+    // 비디오 배치 모드 체크를 가장 먼저 처리
+    if (window.webrtcManager && window.webrtcManager.isVideoPlacementMode) {
+      // 모든 Zone의 큐브를 하나의 배열로 통합
+      const allCubes = [];
+      for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+        allCubes.push(...zoneCubes);
+      }
+      const cubeIntersects = raycaster.intersectObjects(allCubes);
+      
+      if (cubeIntersects.length > 0) {
+        const targetCube = cubeIntersects[0].object;
+        const faceIndex = window.webrtcManager.detectCubeFace(cubeIntersects[0], targetCube);
+        if (faceIndex !== -1) {
+          await window.webrtcManager.placeVideoOnFace(targetCube, faceIndex, window.webrtcManager.placementTargetUserId);
+          return;
+        }
+      } else {
+        // 빈 공간 클릭 시 배치 모드 취소
+        window.webrtcManager.exitVideoPlacement();
+        window.webrtcManager.showToast('비디오 배치가 취소되었습니다.');
+      }
+      return;
+    }
+    
     // 모델 배치 모드인 경우
     if (placementMode && placementModelData) {
       // 바닥 클릭 위치 감지 - y=0 평면 사용
@@ -1086,7 +1151,8 @@ function initApp() {
     }
 
     // hover된 큐브와 면이 있으면 그 정보를 사용 (공중 연결)
-    if (hoveredCube && hoveredFaceNormal) {
+    // 단, 비디오 배치 모드가 아닐 때만
+    if (hoveredCube && hoveredFaceNormal && !(window.webrtcManager && window.webrtcManager.isVideoPlacementMode)) {
       // 현재 Zone 기준으로 좌표 변환
       const localX = hoveredCube.position.x - (currentZoneX * ZONE_SIZE);
       const localZ = hoveredCube.position.z - (currentZoneY * ZONE_SIZE);
@@ -1117,7 +1183,8 @@ function initApp() {
     const cubeIntersects = raycaster.intersectObjects(allCubes);
     
     // 큐브를 클릭한 경우는 이미 hover에서 처리되므로, 바닥 클릭만 처리
-    if (cubeIntersects.length === 0) {
+    // 단, 비디오 배치 모드가 아닐 때만
+    if (cubeIntersects.length === 0 && !(window.webrtcManager && window.webrtcManager.isVideoPlacementMode)) {
       // 바닥 클릭 - 빈 공간이면 바닥부터 쌓기
       const planeY = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
       const intersect = raycaster.ray.intersectPlane(planeY, new THREE.Vector3());
@@ -1455,6 +1522,11 @@ function initApp() {
   renderer.domElement.addEventListener('mouseup', (event) => {
     // FPS 모드일 때는 편집 기능 건너뜀
     if (fpsControls && fpsControls.enabled) return;
+    
+    // 비디오 배치 모드일 때는 큐브 생성 방지
+    if (window.webrtcManager && window.webrtcManager.isVideoPlacementMode) {
+      return;
+    }
     
     if (event.button === 2) { // Right mouse button
       if (isRightDragging) {
@@ -2040,6 +2112,11 @@ function initApp() {
       event.preventDefault();
       const targetCube = intersects[0].object;
       
+      // 큐브에 비디오가 있으면 사이드바로 이동
+      if (targetCube.userData.videos && window.webrtcManager) {
+        window.webrtcManager.moveVideosToSidebar(targetCube);
+      }
+      
       // 씬에서 제거
       scene.remove(targetCube);
 
@@ -2596,5 +2673,119 @@ if (document.readyState === 'loading') {
   console.log('DOM이 이미 준비됨, 즉시 초기화');
   initApp();
 }
+
+// WebRTC 매니저 초기화 및 이벤트 핸들러
+async function initWebRTC() {
+  try {
+    console.log('=== WebRTC 초기화 시작 ===');
+    console.log('Socket:', !!socket, 'SpaceId:', spaceId, 'UserId:', getUserId());
+    
+    const { WebRTCManager } = await import('./webrtc.js');
+    console.log('WebRTCManager 클래스 로드 완료');
+    
+    window.webrtcManager = new WebRTCManager(socket, spaceId, getUserId());
+    console.log('WebRTC 매니저 인스턴스 생성 완료');
+    
+    // 기존 이벤트 리스너 제거
+    const startBtn = document.getElementById('start-video-btn');
+    const stopBtn = document.getElementById('stop-video-btn');
+    
+    if (startBtn) {
+      // 기존 리스너 제거 후 새로 추가
+      startBtn.replaceWith(startBtn.cloneNode(true));
+      const newStartBtn = document.getElementById('start-video-btn');
+      
+      newStartBtn.addEventListener('click', async () => {
+        console.log('=== 카메라 시작 버튼 클릭 ===');
+        if (!window.webrtcManager) {
+          console.error('WebRTC 매니저가 없습니다!');
+          return;
+        }
+        
+        const success = await window.webrtcManager.startLocalVideo();
+        if (success && socket && isRealtimeAvailable) {
+          // 기존 사용자들과 연결 시도
+          setTimeout(() => {
+            const userList = getConnectedUsers();
+            console.log('연결 시도할 사용자 목록:', userList);
+            userList.forEach(userId => {
+              if (userId !== getUserId()) {
+                console.log('연결 시도:', userId);
+                window.webrtcManager.initiateCall(userId);
+              }
+            });
+          }, 1000);
+        }
+      });
+    }
+    
+    if (stopBtn) {
+      stopBtn.replaceWith(stopBtn.cloneNode(true));
+      const newStopBtn = document.getElementById('stop-video-btn');
+      
+      newStopBtn.addEventListener('click', () => {
+        console.log('카메라 정지 버튼 클릭');
+        if (window.webrtcManager) {
+          window.webrtcManager.stopLocalVideo();
+        }
+      });
+    }
+    
+    // ESC 키로 비디오 배치 모드 취소
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && window.webrtcManager && window.webrtcManager.isVideoPlacementMode) {
+        window.webrtcManager.exitVideoPlacement();
+      }
+    });
+    
+    console.log('=== WebRTC 매니저 초기화 완료 ===');
+    console.log('Socket 연결 상태:', socket ? socket.connected : 'null');
+  } catch (error) {
+    console.error('=== WebRTC 초기화 실패 ===', error);
+    console.error('Error stack:', error.stack);
+  }
+}
+
+// 유틸리티 함수들
+function getUserId() {
+  return localStorage.getItem('cuberse_current_user');
+}
+
+function getConnectedUsers() {
+  const userListElement = document.getElementById('user-list');
+  const users = [];
+  userListElement.querySelectorAll('li').forEach(li => {
+    // 텍스트에서 사용자 이름만 추출 (괄호 안의 내용 제거)
+    const userName = li.textContent.replace(/ \(.*?\)/g, '').trim();
+    users.push(userName);
+  });
+  console.log('실제 사용자 ID 목록:', users);
+  return users;
+}
+
+// showToast 함수를 전역으로 노출
+window.showToast = showToast;
+
+// 큐브 ID 생성 함수 추가
+function getCubeId(cube) {
+  return `${cube.position.x}_${cube.position.y}_${cube.position.z}`;
+}
+
+// 큐브 ID로 큐브 찾기 함수 추가
+function findCubeById(cubeId) {
+  for (const [zoneKey, zoneCubes] of Object.entries(zoneData)) {
+    for (const cube of zoneCubes) {
+      if (getCubeId(cube) === cubeId) {
+        return cube;
+      }
+    }
+  }
+  return null;
+}
+
+// WebRTC 매니저에 필요한 함수들을 전역으로 노출
+window.getCubeId = getCubeId;
+window.findCubeById = findCubeById;
+window.zoneData = zoneData;
 
 // %%%%%LAST%%%%%

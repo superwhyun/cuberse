@@ -18,6 +18,54 @@ body {
   box-sizing: border-box;
 }
 
+/* 비디오 사이드바 스타일 */
+.video-item {
+  margin-bottom: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background: rgba(248, 250, 252, 0.8);
+  transition: all 0.2s ease;
+}
+
+.video-item.placed {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.video-item.unplaced {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.video-item.placing {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  animation: video-pulse 1s infinite;
+}
+
+@keyframes video-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.place-video-btn:hover {
+  background: #1976D2 !important;
+  transform: translateY(-1px);
+}
+
+#video-sidebar {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+#start-video-btn:hover {
+  background: #45a049 !important;
+}
+
+#stop-video-btn:hover {
+  background: #da190b !important;
+}
+
 #color-picker {
   /* unchanged */
 
