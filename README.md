@@ -1,16 +1,64 @@
 # Cuberse - 3D 큐브 빌딩 애플리케이션
 
-## 로컬 개발 환경 실행
+## 🚀 빠른 시작
 
+### 의존성 설치
 ```bash
-# 의존성 설치
 npm install
-
-# 로컬 서버 실행 (포트 3000)
-npm run dev
 ```
 
-브라우저에서 `http://localhost:3000` 접속
+### HTTP 서버 실행
+```bash
+# 개발환경 (포트 3001)
+npm run dev
+
+# 프로덕션환경 (포트 3000)  
+npm start
+```
+
+### HTTPS 서버 실행
+
+#### 1. 개발환경 (자체 서명 인증서)
+```bash
+# SSL 인증서 생성
+npm run generate-ssl
+
+# HTTPS 개발 서버 실행 (포트 3443)
+npm run dev-https
+```
+
+#### 2. 프로덕션환경 (Let's Encrypt)
+```bash
+# Let's Encrypt 설정 가이드 실행
+npm run setup-letsencrypt
+
+# 환경변수 설정 후 HTTPS 서버 실행 (포트 443)
+USE_HTTPS=true npm run start-https
+```
+
+## 🔒 SSL/HTTPS 설정
+
+### 개발용 (로컬)
+자체 서명 인증서로 HTTPS 테스트 가능:
+- 브라우저에서 보안 경고 발생 (정상)
+- "고급" → "안전하지 않음으로 이동" 클릭
+
+### 프로덕션용 (실제 서비스)
+Let's Encrypt 무료 SSL 인증서 사용:
+```bash
+# 1. 도메인 연결 후 Let's Encrypt 설정
+sudo certbot --nginx -d yourdomain.com
+
+# 2. 환경변수 설정
+export SSL_CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
+export SSL_KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem
+export USE_HTTPS=true
+
+# 3. HTTPS 서버 실행
+npm run start-https
+```
+
+자세한 SSL 설정은 [SSL-SETUP.md](./SSL-SETUP.md) 참조
 
 ## Vercel 배포
 
@@ -32,12 +80,25 @@ npm run deploy
 ### 3. 자동 배포 설정
 GitHub 연동 시 main 브랜치 푸시마다 자동 배포
 
-## 기술 스택
+## 🛠 기술 스택
 
-- **로컬**: Express.js 서버
-- **배포**: Vercel Serverless Functions
+- **백엔드**: Express.js + Socket.IO (실시간 통신)
 - **프론트엔드**: Three.js, HTML5, CSS3, JavaScript ES6
+- **보안**: SSL/TLS (HTTPS 지원)
+- **배포**: Vercel Serverless Functions
 - **데이터**: LocalStorage (클라이언트 사이드)
+
+## 📋 사용 가능한 스크립트
+
+| 명령어 | 설명 |
+|--------|------|
+| `npm run dev` | 개발 서버 (HTTP, 포트 3001) |
+| `npm run dev-https` | 개발 서버 (HTTPS, 포트 3443) |
+| `npm start` | 프로덕션 서버 (HTTP, 포트 3000) |
+| `npm run start-https` | 프로덕션 서버 (HTTPS, 포트 443) |
+| `npm run generate-ssl` | 개발용 SSL 인증서 생성 |
+| `npm run setup-letsencrypt` | Let's Encrypt 설정 가이드 |
+| `npm run deploy` | Vercel 프로덕션 배포 |
 
 ## 주요 기능
 
