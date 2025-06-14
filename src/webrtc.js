@@ -10,8 +10,14 @@ export class WebRTCManager {
     this.isVideoPlacementMode = false;
     this.placementTargetUserId = null;
     
+    // 음성 감지 관련
+    this.audioAnalysers = new Map(); // userId -> { analyser, dataArray }
+    this.cubeAnimations = new Map(); // userId -> { cube, originalPosition, isAnimating }
+    this.voiceThreshold = 30; // 음성 감지 임계값
+    
     this.setupSocketHandlers();
     this.loadVideoMappings();
+    this.startVoiceDetection();
   }
 
   // 로컬 저장소에서 비디오 배치 정보 로드
@@ -81,6 +87,9 @@ export class WebRTCManager {
       
       // 로컬 비디오를 사이드바에 추가
       this.addVideoToSidebar(this.userId, this.localStream);
+      
+      // 로컬 스트림에도 음성 분석기 설정
+      this.setupAudioAnalyser(this.userId, this.localStream);
       
       document.getElementById('start-video-btn').style.display = 'none';
       document.getElementById('stop-video-btn').style.display = 'inline-block';
@@ -240,12 +249,17 @@ export class WebRTCManager {
     console.log('원격 스트림 수신:', userId, stream);
     this.addVideoToSidebar(userId, stream);
     
+    // 음성 분석기 설정
+    this.setupAudioAnalyser(userId, stream);
+    
     // 저장된 배치 정보가 있으면 자동 배치
     const mapping = this.videoFaceMappings.get(userId);
     if (mapping) {
       const cube = this.findCubeById(mapping.cubeId);
       if (cube) {
         this.applyVideoToFace(cube, mapping.faceIndex, stream, userId);
+        // 큐브 애니메이션 등록
+        this.registerCubeAnimation(userId, cube);
       } else {
         // 큐브가 없으면 사이드바에만 표시
         this.promptVideoPlacement(userId);
@@ -321,6 +335,10 @@ export class WebRTCManager {
               if (videoInfo.userId === userId) {
                 // 비디오 리소스 정리
                 this.cleanupVideoResources(videoInfo);
+                
+                // 음성 감지 및 애니메이션 정리
+                this.audioAnalysers.delete(videoInfo.userId);
+                this.cubeAnimations.delete(videoInfo.userId);
                 
                 // 원래 머티리얼로 복원
                 if (Array.isArray(cube.material) && cube.userData.originalMaterials) {
@@ -517,6 +535,9 @@ export class WebRTCManager {
     // 큐브에 비디오 정보 저장
     if (!cube.userData.videos) cube.userData.videos = {};
     cube.userData.videos[faceIndex] = { userId, stream, video, videoTexture };
+    
+    // 음성 기반 큐브 애니메이션 등록
+    this.registerCubeAnimation(userId, cube);
   }
 
   // 큐브에서 비디오 제거 (사용하지 않음 - 좀비 코드)
@@ -534,6 +555,10 @@ export class WebRTCManager {
         console.log('🔄 비디오 처리 중:', videoInfo.userId);
         // 메모리 리크 방지: 비디오 텍스처와 자원 정리
         this.cleanupVideoResources(videoInfo);
+        
+        // 큐브 애니메이션만 정리 (음성 분석기는 사용자 스트림에 연결되어 있으므로 유지)
+        this.cubeAnimations.delete(videoInfo.userId);
+        console.log('🎯 큐브 애니메이션 제거:', videoInfo.userId);
         
         const videoItem = document.getElementById(`video-item-${videoInfo.userId}`);
         if (videoItem) {
@@ -631,5 +656,127 @@ export class WebRTCManager {
     } else {
       return direction.z > 0 ? 4 : 5; // 앞(+Z) 또는 뒤(-Z)
     }
+  }
+  
+  // 음성 감지 시스템 시작
+  startVoiceDetection() {
+    // 60fps로 음성 레벨 체크
+    this.voiceDetectionInterval = setInterval(() => {
+      this.checkVoiceLevels();
+    }, 16); // ~60fps
+  }
+  
+  // 모든 사용자의 음성 레벨 체크
+  checkVoiceLevels() {
+    this.audioAnalysers.forEach((analyserData, userId) => {
+      const voiceLevel = this.getVoiceLevel(analyserData);
+      this.handleVoiceLevel(userId, voiceLevel);
+    });
+  }
+  
+  // 음성 레벨 측정
+  getVoiceLevel(analyserData) {
+    const { analyser, dataArray } = analyserData;
+    analyser.getByteFrequencyData(dataArray);
+    
+    // 평균 음성 레벨 계산
+    const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+    return average;
+  }
+  
+  // 음성 레벨에 따른 큐브 애니메이션
+  handleVoiceLevel(userId, voiceLevel) {
+    const animationData = this.cubeAnimations.get(userId);
+    if (!animationData) return;
+    
+    const { cube, originalPosition } = animationData;
+    const isSpeaking = voiceLevel > this.voiceThreshold;
+    
+    if (isSpeaking) {
+      // 말하는 중 - 앞으로 이동
+      this.animateCubeToPosition(cube, {
+        x: originalPosition.x,
+        y: originalPosition.y,
+        z: originalPosition.z + 0.2
+      });
+    } else {
+      // 조용함 - 원래 위치로
+      this.animateCubeToPosition(cube, originalPosition);
+    }
+  }
+  
+  // 큐브 위치 애니메이션
+  animateCubeToPosition(cube, targetPosition) {
+    const duration = 300; // 0.3초
+    const startTime = Date.now();
+    const startPosition = {
+      x: cube.position.x,
+      y: cube.position.y,
+      z: cube.position.z
+    };
+    
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Ease-out 애니메이션
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
+      
+      cube.position.x = startPosition.x + (targetPosition.x - startPosition.x) * easeProgress;
+      cube.position.y = startPosition.y + (targetPosition.y - startPosition.y) * easeProgress;
+      cube.position.z = startPosition.z + (targetPosition.z - startPosition.z) * easeProgress;
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    animate();
+  }
+  
+  // 오디오 분석기 설정 (스트림 수신 시 호출)
+  setupAudioAnalyser(userId, stream) {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      this.audioAnalysers.set(userId, { analyser, dataArray });
+      console.log('🎤 음성 분석기 설정 완료:', userId);
+    } catch (error) {
+      console.error('음성 분석기 설정 실패:', error);
+    }
+  }
+  
+  // 큐브 애니메이션 데이터 등록 (비디오 배치 시 호출)
+  registerCubeAnimation(userId, cube) {
+    const originalPosition = {
+      x: cube.position.x,
+      y: cube.position.y,
+      z: cube.position.z
+    };
+    
+    this.cubeAnimations.set(userId, {
+      cube: cube,
+      originalPosition: originalPosition,
+      isAnimating: false
+    });
+    
+    console.log('🎯 큐브 애니메이션 등록:', userId, originalPosition);
+  }
+  
+  // 정리 함수
+  cleanup() {
+    if (this.voiceDetectionInterval) {
+      clearInterval(this.voiceDetectionInterval);
+    }
+    this.audioAnalysers.clear();
+    this.cubeAnimations.clear();
   }
 }
