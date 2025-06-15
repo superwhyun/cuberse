@@ -5,16 +5,13 @@
   "main": "server.js",
   "scripts": {
     "dev": "NODE_ENV=development nodemon server.js",
-    "dev-https": "NODE_ENV=development USE_HTTPS=true nodemon server.js",
     "start": "NODE_ENV=production node server.js",
-    "start-https": "NODE_ENV=production USE_HTTPS=true node server.js",
     "prod": "NODE_ENV=production node server.js",
     "service": "NODE_ENV=production node server.js",
     "vercel-build": "echo 'Build for Vercel complete'",
     "deploy": "vercel --prod",
     "headless": "npx serve .",
-    "generate-ssl": "./generate-ssl.sh",
-    "setup-letsencrypt": "./setup-letsencrypt.sh"
+    "setup-nginx": "./setup-letsencrypt.sh"
   },
   "dependencies": {
     "express": "^4.19.2",

@@ -4,8 +4,6 @@
 const express = require('express');
 const path = require('path');
 const http = require('http');
-const https = require('https');
-const fs = require('fs');
 const { Server } = require('socket.io');
 
 const app = express();
@@ -13,15 +11,11 @@ const app = express();
 // 환경별 포트 설정
 const isDev = process.env.NODE_ENV !== 'production';
 const PORT = process.env.PORT || (isDev ? 3001 : 3000); // dev: 3001, production: 3000
-const HTTPS_PORT = process.env.HTTPS_PORT || (isDev ? 3443 : 443); // HTTPS 포트
-const USE_HTTPS = process.env.USE_HTTPS === 'true' || false; // HTTPS 사용 여부
 
 console.log(`🚀 환경: ${isDev ? 'DEVELOPMENT' : 'PRODUCTION'}`);
-console.log(`📡 HTTP 포트: ${PORT}`);
-console.log(`🔒 HTTPS 포트: ${HTTPS_PORT}`);
-console.log(`🔐 HTTPS 사용: ${USE_HTTPS}`);
+console.log(`📡 HTTP 포트: ${PORT} (Nginx 프록시를 통해 HTTPS 제공)`);
 
-// 정적 파일 서빙
+// 정적 파일 서빙 (Nginx가 대부분 처리하지만 fallback용)
 app.use(express.static(__dirname));
 app.use('/src', express.static(path.join(__dirname, 'src')));
 
@@ -29,71 +23,16 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// SSL 인증서 설정 (HTTPS 사용시)
-let httpsOptions = {};
-if (USE_HTTPS) {
-  try {
-    // SSL 인증서 파일 경로 설정
-    const certPath = process.env.SSL_CERT_PATH || './ssl/cert.pem';
-    const keyPath = process.env.SSL_KEY_PATH || './ssl/key.pem';
-    const caPath = process.env.SSL_CA_PATH; // 중간 인증서 (선택사항)
-    
-    httpsOptions = {
-      key: fs.readFileSync(keyPath),
-      cert: fs.readFileSync(certPath)
-    };
-    
-    // 중간 인증서가 있는 경우 추가 (Let's Encrypt 등에서 필요)
-    if (caPath && fs.existsSync(caPath)) {
-      httpsOptions.ca = fs.readFileSync(caPath);
-      console.log('🔗 중간 인증서 로드 완료');
-    }
-    
-    console.log('🔒 SSL 인증서 로드 완료');
-    
-    if (isDev) {
-      console.log('⚠️  개발환경에서 자체 서명 인증서 사용 중');
-      console.log('   브라우저에서 "고급" → "안전하지 않음으로 이동" 클릭');
-    }
-  } catch (error) {
-    console.error('❌ SSL 인증서 로드 실패:', error.message);
-    
-    if (isDev) {
-      console.log('💡 개발용 자체 서명 인증서를 생성하세요:');
-      console.log('   npm run generate-ssl');
-    } else {
-      console.log('💡 프로덕션용 SSL 인증서 설정:');
-      console.log('   1. Let\'s Encrypt: certbot --nginx -d yourdomain.com');
-      console.log('   2. 환경변수 설정:');
-      console.log('      SSL_CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem');
-      console.log('      SSL_KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem');
-    }
-    process.exit(1);
-  }
-}
-
-// HTTP/HTTPS 서버 생성
+// HTTP 서버 생성 (Nginx가 HTTPS 처리)
 const httpServer = http.createServer(app);
-let httpsServer = null;
-if (USE_HTTPS) {
-  httpsServer = https.createServer(httpsOptions, app);
-}
 
-// Socket.IO 서버 설정 - HTTP와 HTTPS 모두 지원
-const io = new Server({
+// Socket.IO 서버 설정 (HTTP 서버에 연결)
+const io = new Server(httpServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
   }
 });
-
-// HTTP 서버에 Socket.IO 연결
-io.attach(httpServer);
-
-// HTTPS 서버가 있으면 추가로 연결
-if (USE_HTTPS && httpsServer) {
-  io.attach(httpsServer);
-}
 
 // --- 스페이스 기반 방 관리 시스템 ---
 class SpaceManager {
@@ -391,11 +330,9 @@ io.on('connection', (socket) => {
 
 // 서버 시작
 httpServer.listen(PORT, () => {
-  console.log(`🌐 HTTP 서버가 http://localhost:${PORT}에서 실행 중입니다.`);
+  console.log(`🌐 HTTP 서버가 localhost:${PORT}에서 실행 중입니다.`);
+  console.log(`📡 프로덕션에서는 Nginx 프록시를 통해 HTTPS로 접근하세요.`);
+  if (isDev) {
+    console.log(`🔗 개발 접속: http://localhost:${PORT}`);
+  }
 });
-
-if (USE_HTTPS && httpsServer) {
-  httpsServer.listen(HTTPS_PORT, () => {
-    console.log(`🔒 HTTPS 서버가 https://localhost:${HTTPS_PORT}에서 실행 중입니다.`);
-  });
-}
