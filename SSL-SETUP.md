@@ -1,67 +1,72 @@
 # 🔒 SSL/HTTPS 설정 가이드
 
-Cuberse에서 HTTPS를 설정하는 방법을 안내합니다.
+Cuberse에서 Nginx 프록시를 통한 HTTPS 설정 방법을 안내합니다.
 
 ## 🚀 빠른 시작
 
 ### 개발환경 (로컬)
 ```bash
-# 1. 자체 서명 인증서 생성
-npm run generate-ssl
-
-# 2. HTTPS로 개발 서버 실행
-npm run dev-https
+# HTTP로 개발 (HTTPS 불필요)
+npm run dev
+# → http://localhost:3001
 ```
 
-### 프로덕션환경 (실제 서비스)
+### 프로덕션환경 (Nginx + Let's Encrypt)
 ```bash
-# 1. Let's Encrypt 설정 (대화형)
-npm run setup-letsencrypt
+# 1. Nginx + SSL 자동 설정
+npm run setup-nginx
 
-# 2. 환경변수 설정 후 서버 실행
-npm run start-https
-```
-
-## 📋 상세 설정
-
-### 환경변수
-| 변수 | 설명 | 기본값 |
-|------|------|--------|
-| `USE_HTTPS` | HTTPS 활성화 | `false` |
-| `HTTPS_PORT` | HTTPS 포트 | 개발: 3443, 프로덕션: 443 |
-| `SSL_CERT_PATH` | 인증서 파일 경로 | `./ssl/cert.pem` |
-| `SSL_KEY_PATH` | 개인키 파일 경로 | `./ssl/key.pem` |
-| `SSL_CA_PATH` | 중간 인증서 경로 | (선택사항) |
-
-### 프로덕션 SSL 인증서 설정
-
-#### 1. Let's Encrypt (무료, 권장)
-```bash
-# Certbot 설치 (Ubuntu/Debian)
-sudo apt update
-sudo apt install certbot python3-certbot-nginx
-
-# 인증서 발급
+# 2. SSL 인증서 발급 (가이드에 따라)
 sudo certbot --nginx -d yourdomain.com
 
-# 환경변수 설정
-export SSL_CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
-export SSL_KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem
-export USE_HTTPS=true
-
-# 서버 실행
-npm run start-https
+# 3. Node.js HTTP 서버 실행
+npm start
+# → https://yourdomain.com (Nginx가 HTTPS 처리)
 ```
 
-#### 2. 상용 SSL 인증서
-```bash
-# 인증서 파일을 서버에 업로드 후
-export SSL_CERT_PATH=/path/to/your/certificate.crt
-export SSL_KEY_PATH=/path/to/your/private.key
-export SSL_CA_PATH=/path/to/your/ca-bundle.crt  # 중간 인증서
-export USE_HTTPS=true
+## 📋 Nginx 프록시 구조
 
-npm run start-https
+```
+인터넷 → Nginx (443) → Node.js (3000)
+         ↑
+    Let's Encrypt SSL
+```
+
+### 환경변수 (Node.js)
+| 변수 | 설명 | 기본값 |
+|------|------|--------|
+| `NODE_ENV` | 환경 설정 | `development` |
+| `PORT` | HTTP 포트 | 개발: 3001, 프로덕션: 3000 |
+
+### Nginx + SSL 설정
+
+#### 1. 자동 설정 (권장)
+```bash
+# 모든 설정을 자동으로 처리
+npm run setup-nginx
+
+# 스크립트가 수행하는 작업:
+# - Nginx 설치
+# - Certbot 설치  
+# - Nginx 설정 파일 생성
+# - SSL 인증서 발급 가이드
+```
+
+#### 2. 수동 설정
+```bash
+# 1. Nginx 설치
+sudo apt update
+sudo apt install nginx certbot python3-certbot-nginx
+
+# 2. Nginx 설정 파일 생성
+sudo nano /etc/nginx/sites-available/yourdomain
+
+# 3. 사이트 활성화
+sudo ln -s /etc/nginx/sites-available/yourdomain /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# 4. SSL 인증서 발급
+sudo certbot --nginx -d yourdomain.com
 ```
 
 ### 자동 인증서 갱신 (Let's Encrypt)
@@ -69,21 +74,18 @@ npm run start-https
 # crontab 편집
 sudo crontab -e
 
-# 다음 줄 추가 (매일 정오에 갱신 시도)
-0 12 * * * /usr/bin/certbot renew --quiet
+# 다음 줄 추가 (매달 1일 새벽 2시에 갱신 및 Nginx 재시작)
+0 2 1 * * /usr/bin/certbot renew --quiet --post-hook 'systemctl reload nginx'
 ```
 
 ## 🔧 스크립트 설명
 
-### `generate-ssl.sh`
-- 개발용 자체 서명 인증서 생성
-- `ssl/` 디렉토리에 `cert.pem`, `key.pem` 생성
-- 브라우저에서 보안 경고 나타남 (정상)
-
-### `setup-letsencrypt.sh`
-- Let's Encrypt 설정 가이드
-- Nginx, Certbot 설치 도움
-- 환경변수 설정 안내
+### `setup-letsencrypt.sh` → `setup-nginx.sh`
+- Nginx 자동 설치 및 설정
+- Let's Encrypt Certbot 설치
+- Nginx 설정 파일 자동 생성
+- SSL 인증서 발급 가이드 제공
+- 단일 도메인 및 멀티 도메인 지원
 
 ## 🌍 배포 플랫폼별 설정
 
@@ -102,25 +104,41 @@ Vercel은 자동으로 HTTPS를 제공하므로 별도 설정 불필요
 
 ## ⚠️  주의사항
 
-1. **개발환경**: 자체 서명 인증서는 브라우저 경고 발생 (정상)
-2. **프로덕션**: 반드시 신뢰할 수 있는 CA에서 발급받은 인증서 사용
-3. **포트**: 443 포트는 root 권한 필요 (Linux)
-4. **방화벽**: HTTPS 포트(443) 허용 필요
-5. **갱신**: Let's Encrypt 인증서는 90일마다 갱신 필요
+1. **개발환경**: HTTP로 개발 (HTTPS 불필요)
+2. **프로덕션**: Nginx가 HTTPS 처리, Node.js는 HTTP만
+3. **포트**: Nginx(80,443), Node.js(3000) 포트 필요
+4. **방화벽**: 80, 443 포트 허용 필요
+5. **갱신**: Let's Encrypt 인증서는 90일마다 자동 갱신
+6. **멀티 도메인**: 여러 도메인 사용 시 `setup-multi-domain.sh` 활용
 
 ## 🔍 문제해결
 
-### 인증서 로드 실패
-```
-❌ SSL 인증서 로드 실패: ENOENT: no such file or directory
-```
-→ 인증서 파일 경로 확인 및 파일 존재 여부 확인
+### Nginx 설정 오류
+```bash
+# Nginx 설정 테스트
+sudo nginx -t
 
-### 권한 오류
+# Nginx 상태 확인
+sudo systemctl status nginx
 ```
-❌ Error: listen EACCES: permission denied :::443
-```
-→ root 권한으로 실행하거나 포트 변경
 
-### 브라우저 보안 경고
-개발환경에서는 "고급" → "안전하지 않음으로 이동" 클릭
+### 포트 충돌
+```bash
+# 포트 사용 확인
+sudo netstat -tlnp | grep :80
+sudo netstat -tlnp | grep :443
+sudo netstat -tlnp | grep :3000
+```
+
+### SSL 인증서 문제
+```bash
+# 인증서 상태 확인
+sudo certbot certificates
+
+# 수동 갱신 테스트
+sudo certbot renew --dry-run
+```
+
+### Node.js 연결 문제
+- Node.js가 3000포트에서 실행 중인지 확인
+- 방화벽에서 내부 포트(3000) 허용 여부 확인

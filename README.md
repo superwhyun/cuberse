@@ -16,49 +16,49 @@ npm run dev
 npm start
 ```
 
-### HTTPS 서버 실행
+### HTTPS 서버 설정 (프로덕션)
 
-#### 1. 개발환경 (자체 서명 인증서)
+#### Nginx 프록시 방식 (권장)
 ```bash
-# SSL 인증서 생성
-npm run generate-ssl
+# 1. Nginx + Let's Encrypt 설정
+npm run setup-nginx
 
-# HTTPS 개발 서버 실행 (포트 3443)
-npm run dev-https
+# 2. Node.js HTTP 서버 실행 (포트 3000)
+npm start
+
+# 3. Nginx가 HTTPS 처리
+# → https://yourdomain.com (Nginx:443) → Node.js (localhost:3000)
 ```
 
-#### 2. 프로덕션환경 (Let's Encrypt)
+#### 개발환경
 ```bash
-# Let's Encrypt 설정 가이드 실행
-npm run setup-letsencrypt
-
-# 환경변수 설정 후 HTTPS 서버 실행 (포트 443)
-USE_HTTPS=true npm run start-https
+# HTTP로 개발 (포트 3001)
+npm run dev
 ```
 
 ## 🔒 SSL/HTTPS 설정
 
 ### 개발용 (로컬)
-자체 서명 인증서로 HTTPS 테스트 가능:
-- 브라우저에서 보안 경고 발생 (정상)
-- "고급" → "안전하지 않음으로 이동" 클릭
-
-### 프로덕션용 (실제 서비스)
-Let's Encrypt 무료 SSL 인증서 사용:
 ```bash
-# 1. 도메인 연결 후 Let's Encrypt 설정
-sudo certbot --nginx -d yourdomain.com
-
-# 2. 환경변수 설정
-export SSL_CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
-export SSL_KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem
-export USE_HTTPS=true
-
-# 3. HTTPS 서버 실행
-npm run start-https
+# HTTP로 개발 (HTTPS 불필요)
+npm run dev
+# → http://localhost:3001
 ```
 
-자세한 SSL 설정은 [SSL-SETUP.md](./SSL-SETUP.md) 참조
+### 프로덕션용 (Nginx 프록시)
+```bash
+# 1. Nginx + SSL 자동 설정
+npm run setup-nginx
+
+# 2. 스크립트 가이드에 따라 SSL 인증서 발급
+sudo certbot --nginx -d yourdomain.com
+
+# 3. Node.js 서버 실행 (HTTP)
+npm start
+# → Nginx가 HTTPS 처리: https://yourdomain.com
+```
+
+자세한 설정은 [SSL-SETUP.md](./SSL-SETUP.md) 참조
 
 ## Vercel 배포
 
@@ -93,11 +93,8 @@ GitHub 연동 시 main 브랜치 푸시마다 자동 배포
 | 명령어 | 설명 |
 |--------|------|
 | `npm run dev` | 개발 서버 (HTTP, 포트 3001) |
-| `npm run dev-https` | 개발 서버 (HTTPS, 포트 3443) |
 | `npm start` | 프로덕션 서버 (HTTP, 포트 3000) |
-| `npm run start-https` | 프로덕션 서버 (HTTPS, 포트 443) |
-| `npm run generate-ssl` | 개발용 SSL 인증서 생성 |
-| `npm run setup-letsencrypt` | Let's Encrypt 설정 가이드 |
+| `npm run setup-nginx` | Nginx + Let's Encrypt 설정 가이드 |
 | `npm run deploy` | Vercel 프로덕션 배포 |
 
 ## 주요 기능
@@ -113,12 +110,18 @@ GitHub 연동 시 main 브랜치 푸시마다 자동 배포
 ## 배포 구조
 
 ```
-로컬 개발: Express.js (server.js)
-├── /public → 정적 파일 서빙
+로컬 개발: Node.js HTTP
+├── Express.js (server.js)
 ├── /src → 소스 코드
-└── 포트 3000
+└── 포트 3001 (개발) / 3000 (프로덕션)
 
-Vercel 배포: Serverless
+프로덕션: Nginx + Node.js
+├── Nginx (443) → HTTPS/SSL 처리
+├── Node.js (3000) → HTTP API/Socket.IO
+├── Let's Encrypt → 자동 SSL 인증서
+└── 도메인 연결
+
+Vercel 배포: Serverless (HTTPS 자동)
 ├── /api → API Routes
 ├── /public → 정적 파일
 ├── /src → 소스 코드  
